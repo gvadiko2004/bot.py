@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
+from selenium.common.exceptions import ElementClickInterceptedException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -43,11 +43,6 @@ COMMENT_TEXT = """Доброго дня!
 Зв'яжіться зі мною в особистих повідомленнях. Дякую!
 """
 
-# ===== Глобальные объекты браузера =====
-driver = None
-wait = None
-driver_lock = threading.Lock()  # Чтобы один браузер на все проекты
-
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
@@ -56,10 +51,23 @@ def save_cookies(driver):
     with open(COOKIES_FILE, "wb") as f:
         pickle.dump(driver.get_cookies(), f)
 
+def load_cookies(driver, url):
+    if os.path.exists(COOKIES_FILE):
+        with open(COOKIES_FILE, "rb") as f:
+            cookies = pickle.load(f)
+        driver.get(url)  # нужно перейти на сайт перед добавлением cookies
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except:
+                continue
+        return True
+    return False
+
 def authorize_manual(driver):
-    """Ждём ручную авторизацию пользователя"""
+    """Ждем ручную авторизацию пользователя"""
     print("[INFO] Если вы не авторизованы, войдите вручную в открывшемся браузере.")
-    for _ in range(120):
+    for _ in range(120):  # ждем до 2 минут
         try:
             driver.find_element(By.ID, "add-bid")
             print("[INFO] Авторизация завершена")
@@ -67,7 +75,7 @@ def authorize_manual(driver):
             return True
         except:
             time.sleep(1)
-    print("[WARN] Авторизация не выполнена, продолжим без нее")
+    print("[WARN] Авторизация не выполнена")
     return False
 
 def insert_comment(driver, wait):
@@ -114,54 +122,37 @@ def make_bid(driver, wait):
         # Вставка комментария
         insert_comment(driver, wait)
 
-        # Кнопка "Добавить" с ID btn-submit-0
+        # Кнопка "Добавить"
         add_btn = wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
         try:
             add_btn.click()
         except ElementClickInterceptedException:
             driver.execute_script("arguments[0].click();", add_btn)
         print("[INFO] Ставка отправлена успешно!")
-        time.sleep(1)
 
     except Exception as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
 
 def process_project(url):
-    """Обработка одного проекта с корректной загрузкой cookies"""
-    global driver, wait
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    # GUI, чтобы вручную авторизоваться при необходимости
+    # chrome_options.add_argument("--headless")
 
-    with driver_lock:
-        if driver is None:
-            chrome_options = Options()
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            # chrome_options.add_argument("--headless")  # GUI нужен для авторизации
-
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-            wait = WebDriverWait(driver, 30)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    wait = WebDriverWait(driver, 30)
 
     try:
-        # Сначала открываем сайт проекта
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
 
-        # Загружаем cookies после того как открыта страница
-        if os.path.exists(COOKIES_FILE):
-            with open(COOKIES_FILE, "rb") as f:
-                cookies = pickle.load(f)
-            for cookie in cookies:
-                try:
-                    # Сбрасываем domain cookie, чтобы добавить на текущий сайт
-                    cookie_copy = cookie.copy()
-                    if "domain" in cookie_copy:
-                        del cookie_copy["domain"]
-                    driver.add_cookie(cookie_copy)
-                except Exception:
-                    continue
-            driver.refresh()
-            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-            print("[INFO] Cookies загружены и страница обновлена")
+        # Загружаем cookies
+        load_cookies(driver, url)
+        driver.refresh()
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Cookies загружены и страница обновлена")
 
         # Авторизация вручную
         authorize_manual(driver)
@@ -169,8 +160,10 @@ def process_project(url):
         # Делаем ставку
         make_bid(driver, wait)
 
+        print("[INFO] Проект обработан, браузер остается открытым для нового проекта")
+
     except Exception as e:
-        print(f"[ERROR] Ошибка обработки ссылки {url}: {e}")
+        print(f"[ERROR] Ошибка обработки проекта: {e}")
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -179,9 +172,9 @@ client = TelegramClient("session", api_id, api_hash)
 async def handler(event):
     text = (event.message.text or "").lower()
     if any(k in text for k in KEYWORDS):
+        print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         if links:
-            print(f"[INFO] Новый проект: {links[0]}")
             threading.Thread(target=process_project, args=(links[0],), daemon=True).start()
 
 # ---------------- Запуск ----------------
