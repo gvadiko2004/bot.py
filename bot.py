@@ -50,7 +50,7 @@ https://iliarchie.github.io/cates/
 Заздалегідь дякую"""
 
 # ---------------- Функции ----------------
-def type_slow(element, text, delay=0.2):
+def type_slow(element, text, delay=0.1):
     for ch in text:
         element.send_keys(ch)
         time.sleep(delay)
