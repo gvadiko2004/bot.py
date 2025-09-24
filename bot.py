@@ -35,6 +35,10 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
+# ---------------- Путь к постоянному профилю и расширению ----------------
+PROFILE_PATH = "/home/user/chrome_profile"  # <-- замените на ваш путь
+EXTENSION_PATH = "/path/to/anticaptcha_extension"  # <-- замените на ваш путь
+
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
@@ -68,33 +72,58 @@ def wait_for_human_verification(driver):
         except:
             time.sleep(1)
 
+def save_cookies(driver):
+    with open("fh_cookies.pkl", "wb") as f:
+        pickle.dump(driver.get_cookies(), f)
+
+def load_cookies(driver, url):
+    if os.path.exists("fh_cookies.pkl"):
+        with open("fh_cookies.pkl", "rb") as f:
+            cookies = pickle.load(f)
+        driver.get(url)
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except:
+                continue
+        return True
+    return False
+
 def authorize_manual(driver, wait):
-    print("[INFO] Если требуется авторизация, войдите вручную в браузере...")
+    print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
     for _ in range(120):
         try:
             driver.find_element(By.ID, "add-bid")
             print("[INFO] Авторизация завершена")
+            save_cookies(driver)
             return True
         except:
             time.sleep(1)
     print("[WARN] Авторизация не выполнена")
     return False
 
-def make_bid(url, profile_path, extension_path):
-    # ---------------- Инициализация браузера для каждого проекта ----------------
+def init_driver():
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(f"--user-data-dir={profile_path}")
-    chrome_options.add_argument(f"--load-extension={extension_path}")
-
+    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
+    chrome_options.add_argument(f"--load-extension={EXTENSION_PATH}")
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
+    return driver, wait
 
+def make_bid(url):
+    # ---------------- Перезапуск браузера для каждого проекта ----------------
+    driver, wait = init_driver()
     try:
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
+
+        load_cookies(driver, url)
+        driver.refresh()
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Cookies загружены и страница обновлена")
 
         authorize_manual(driver, wait)
 
@@ -127,7 +156,10 @@ def make_bid(url, profile_path, extension_path):
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
     finally:
-        driver.quit()  # Закрываем браузер после каждого проекта
+        driver.quit()  # закрываем браузер после проекта
+
+def process_project(url):
+    threading.Thread(target=make_bid, args=(url,), daemon=True).start()
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -139,12 +171,7 @@ async def handler(event):
         print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         if links:
-            # Запуск в отдельном потоке
-            threading.Thread(
-                target=make_bid,
-                args=(links[0], "/home/user/chrome_profile", "/path/to/anticaptcha_extension"),
-                daemon=True
-            ).start()
+            process_project(links[0])
 
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
