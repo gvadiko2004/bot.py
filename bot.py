@@ -42,59 +42,80 @@ https://iliarchie.github.io/cates/
 Зв'яжіться зі мною в особистих повідомленнях.
 Заздалегідь дякую"""
 
-chromedriver_path = "/usr/bin/chromedriver"  # путь к ChromeDriver
-remote_debug_port = 9222  # порт remote debugging
+EMAIL = "Vlari"
+PASSWORD = "Gvadiko_2004"
+
+chromedriver_path = "/usr/bin/chromedriver"
+remote_debug_port = 9222
+
 
 # ---------------- Функции ----------------
 def notify_linux(title, message):
     try:
         subprocess.run(["notify-send", title, message])
-        print(f"[NOTIFY] {title}: {message}")
     except FileNotFoundError:
-        print(f"[NOTIFY] {title}: {message} (notify-send не найден)")
+        pass
+    print(f"[NOTIFY] {title}: {message}")
+
 
 def type_text_slowly(element, text, delay=0.02):
     for ch in text:
         element.send_keys(ch)
         time.sleep(delay)
 
+
 def extract_links(text):
     cleaned_text = text.replace("**", "")
     return re.findall(r"https?://[^\s]+", cleaned_text)
 
-def open_link_and_click(url):
-    options = Options()
-    options.debugger_address = f"127.0.0.1:{remote_debug_port}"  # подключение к уже запущенному Chrome
-    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
-    wait = WebDriverWait(driver, 20)
 
+def login_if_needed(driver, wait):
+    """Авторизация если пользователь не залогинен"""
     try:
-        driver.get(url)
-        print(f"🌐 Открыта страница: {url}")
+        register_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, '//a[contains(text(),"Зареєструватися та виконати проєкт")]')
+        ))
+        register_btn.click()
+        print("➡️ Перенаправление на страницу входа...")
 
-        # --- Находим кнопку "Сделать ставку" ---
-        button = None
+        # Ввод логина
+        login_input = wait.until(EC.element_to_be_clickable((By.ID, "login-0")))
+        login_input.clear()
+        type_text_slowly(login_input, EMAIL)
+
+        # Ввод пароля
+        pass_input = wait.until(EC.element_to_be_clickable((By.ID, "password-0")))
+        pass_input.clear()
+        type_text_slowly(pass_input, PASSWORD)
+
+        # Сабмит формы
+        pass_input.submit()
+        print("✅ Авторизация выполнена!")
+
+        time.sleep(3)
+    except TimeoutException:
+        print("🔑 Пользователь уже авторизован.")
+
+
+def make_bid(driver, wait):
+    """Основная логика: сделать ставку"""
+    try:
+        # Кнопка "Сделать ставку"
         try:
             button = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         except TimeoutException:
-            try:
-                button = wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, '//a[contains(text(),"Сделать ставку")]')
-                ))
-            except TimeoutException:
-                print("❌ Кнопка 'Сделать ставку' не найдена")
-                return
+            button = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, '//a[contains(text(),"Сделать ставку")]')
+            ))
 
         try:
             button.click()
-            print("✅ Кнопка 'Сделать ставку' нажата!")
         except ElementClickInterceptedException:
             driver.execute_script("arguments[0].click();", button)
-            print("✅ Кнопка 'Сделать ставку' нажата через JS!")
 
-        time.sleep(2)
+        print("✅ Кнопка 'Сделать ставку' нажата!")
 
-        # --- Ввод суммы ---
+        # Ввод цены
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR,
@@ -109,32 +130,49 @@ def open_link_and_click(url):
         amount_input.clear()
         type_text_slowly(amount_input, price_digits)
 
-        # --- Ввод дней ---
+        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         type_text_slowly(days_input, "3")
 
-        # --- Ввод комментария ---
+        # Ввод комментария
         textarea = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
         type_text_slowly(textarea, COMMENT_TEXT)
 
-        # --- Нажатие кнопки "Добавить" ---
-        try:
-            submit_btn = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, '//button[contains(text(),"Добавить")]')
-            ))
-            submit_btn.click()
-            print("✅ Кнопка 'Добавить' нажата! Задача выполнена.")
-        except TimeoutException:
-            print("⚠️ Кнопка 'Добавить' не найдена")
+        # Кнопка "Добавить"
+        submit_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, '//button[contains(text(),"Добавить")]')
+        ))
+        submit_btn.click()
+        print("✅ Ставка отправлена!")
 
-        time.sleep(2)
+    except Exception as e:
+        print(f"❌ Ошибка при сделке ставки: {e}")
+
+
+def open_link_and_click(url):
+    options = Options()
+    options.debugger_address = f"127.0.0.1:{remote_debug_port}"
+    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+    wait = WebDriverWait(driver, 20)
+
+    try:
+        driver.get(url)
+        print(f"🌐 Открыта страница: {url}")
+
+        # Авторизация при необходимости
+        login_if_needed(driver, wait)
+
+        # Попытка сделать ставку
+        make_bid(driver, wait)
 
     except Exception as e:
         print(f"❌ Ошибка в open_link_and_click: {e}")
 
+
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
+
 
 @client.on(events.NewMessage)
 async def handler(event):
@@ -146,6 +184,7 @@ async def handler(event):
         if links:
             print(f"🌐 Открываю и кликаю по ссылке: {links[0]}")
             threading.Thread(target=open_link_and_click, args=(links[0],), daemon=True).start()
+
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
