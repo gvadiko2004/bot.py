@@ -10,7 +10,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException
+from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException, StaleElementReferenceException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -43,11 +43,11 @@ wait = None
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def save_cookies(driver):
+def save_cookies():
     with open("fh_cookies.pkl", "wb") as f:
         pickle.dump(driver.get_cookies(), f)
 
-def load_cookies(driver, url):
+def load_cookies(url):
     if os.path.exists("fh_cookies.pkl"):
         with open("fh_cookies.pkl", "rb") as f:
             cookies = pickle.load(f)
@@ -66,7 +66,7 @@ def authorize_manual():
         try:
             driver.find_element(By.ID, "add-bid")
             print("[INFO] Авторизация завершена")
-            save_cookies(driver)
+            save_cookies()
             return True
         except:
             time.sleep(1)
@@ -85,28 +85,18 @@ def insert_comment():
     else:
         print("[WARN] Текст комментария не совпадает полностью")
 
-def click_element_safe(element, retries=3, delay=0.5):
+def click_element_safe(locator, retries=5, delay=0.5):
     for _ in range(retries):
         try:
+            element = wait.until(EC.element_to_be_clickable(locator))
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
             element.click()
             return True
-        except ElementClickInterceptedException:
+        except (ElementClickInterceptedException, StaleElementReferenceException):
             driver.execute_script("arguments[0].click();", element)
-            return True
         except:
             time.sleep(delay)
     return False
-
-def wait_for_human_verification():
-    print("[INFO] Если появится reCAPTCHA или проверка 'Verify you are human', пройдите её вручную.")
-    while True:
-        try:
-            add_btn = driver.find_element(By.ID, "add-0")
-            if add_btn.is_enabled() and add_btn.is_displayed():
-                return add_btn
-        except:
-            pass
-        time.sleep(1)
 
 def make_bid(url):
     try:
@@ -114,18 +104,19 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
 
-        # Загружаем cookies (только один раз, если нужно)
-        load_cookies(driver, url)
+        load_cookies(url)
         driver.refresh()
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print("[INFO] Cookies загружены и страница обновлена")
 
         authorize_manual()
 
-        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        click_element_safe(bid_btn)
-        print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
+        # Кнопка "Сделать ставку"
+        if not click_element_safe((By.ID, "add-bid")):
+            print("[ERROR] Не удалось нажать 'Сделать ставку'")
+            return
+        print("[INFO] Кнопка 'Сделать ставку' нажата")
 
+        # Ввод цены
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -133,19 +124,22 @@ def make_bid(url):
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except:
             price = "1111"
-
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
 
+        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
+        # Ввод комментария
         insert_comment()
 
-        add_btn = wait_for_human_verification()
-        click_element_safe(add_btn, retries=5, delay=1)
+        # Кнопка "Добавить" (последний этап)
+        if not click_element_safe((By.ID, "btn-submit-0")):
+            print("[ERROR] Не удалось нажать 'Добавить'")
+            return
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
@@ -160,7 +154,7 @@ def init_driver():
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Путь к расширению Anti-Captcha, которое уже настроено с API ключом
+    # Путь к расширению Anti-Captcha
     chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
