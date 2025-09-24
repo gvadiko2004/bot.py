@@ -93,19 +93,7 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
             time.sleep(delay)
     return False
 
-def wait_for_add_button(driver):
-    print("[INFO] Ожидание кнопки 'Добавить' или капчи...")
-    while True:
-        try:
-            add_btn = driver.find_element(By.ID, "btn-submit-0")
-            if add_btn.is_enabled() and add_btn.is_displayed():
-                return add_btn
-        except:
-            pass
-        time.sleep(1)
-
 def make_bid(url):
-    # ==== Запускаем отдельный браузер для каждого проекта ====
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -154,14 +142,15 @@ def make_bid(url):
 
         insert_comment(wait)
 
-        add_btn = wait_for_add_button(driver)
-        click_element_safe(driver, add_btn, retries=5, delay=1)
+        # Последний шаг — нажимаем кнопку "Добавить" (id="add-0")
+        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        click_element_safe(driver, add_btn)
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
     finally:
-        driver.quit()  # закрываем браузер после проекта
+        driver.quit()
 
 def process_project(url):
     threading.Thread(target=make_bid, args=(url,), daemon=True).start()
