@@ -43,6 +43,11 @@ COMMENT_TEXT = """Доброго дня!
 Зв'яжіться зі мною в особистих повідомленнях. Дякую!
 """
 
+# ---------------- Глобальные переменные ----------------
+driver = None
+wait = None
+driver_lock = threading.Lock()  # чтобы открытие драйвера было потокобезопасным
+
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
@@ -86,8 +91,30 @@ def insert_comment(driver, wait):
         print("[WARN] Текст не совпадает, повторяем вставку...")
         time.sleep(0.5)
 
-def process_project(url, driver, wait):
-    """Обработка отдельного проекта в рамках одной сессии браузера"""
+def process_project(url):
+    """Обработка одного проекта"""
+    global driver, wait
+
+    with driver_lock:
+        # Если драйвер еще не открыт — открываем
+        if driver is None:
+            chrome_options = Options()
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            # chrome_options.add_argument("--headless")  # GUI нужен для авторизации
+
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+            wait = WebDriverWait(driver, 30)
+
+            # Загружаем cookies, если есть
+            if load_cookies(driver):
+                driver.refresh()
+                wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+                print("[INFO] Cookies загружены и страница обновлена")
+
+            # Авторизация вручную, если требуется
+            authorize_manual(driver)
+
     try:
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
@@ -133,24 +160,6 @@ def process_project(url, driver, wait):
     except Exception as e:
         print(f"[ERROR] Ошибка обработки ссылки {url}: {e}")
 
-# ---------------- Инициализация браузера ----------------
-chrome_options = Options()
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-# chrome_options.add_argument("--headless")  # GUI нужен для авторизации
-
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-wait = WebDriverWait(driver, 30)
-
-# Загружаем cookies, если есть
-if load_cookies(driver):
-    driver.refresh()
-    wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-    print("[INFO] Cookies загружены и страница обновлена")
-
-# Авторизация вручную, если требуется
-authorize_manual(driver)
-
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
 
@@ -162,10 +171,10 @@ async def handler(event):
         links = extract_links(text)
         for link in links:
             print(f"[INFO] Обрабатываем проект: {link}")
-            threading.Thread(target=process_project, args=(link, driver, wait), daemon=True).start()
+            threading.Thread(target=process_project, args=(link,), daemon=True).start()
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
-    print("[INFO] Бот запущен, ждём новые проекты...")
+    print("[INFO] Бот запущен. Браузер откроется при первом проекте.")
     client.start()
     client.run_until_disconnected()
