@@ -201,6 +201,6 @@ async def handler(event):
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
-    print("✅ Бот запущен, ждёт сообщения...")
+    print("✅ Бот запущен ХАХА, ждёт сообщения...")
     client.start()
     client.run_until_disconnected()
