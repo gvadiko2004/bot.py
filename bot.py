@@ -35,42 +35,9 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
-# ---------------- Путь к постоянному профилю и расширению ----------------
-PROFILE_PATH = "/home/user/chrome_profile"  # <-- замените на ваш путь
-EXTENSION_PATH = "/path/to/anticaptcha_extension"  # <-- замените на ваш путь
-
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
-
-def click_element_safe(driver, element, retries=3, delay=0.5):
-    for _ in range(retries):
-        try:
-            element.click()
-            return True
-        except ElementClickInterceptedException:
-            driver.execute_script("arguments[0].click();", element)
-            return True
-        except:
-            time.sleep(delay)
-    return False
-
-def insert_comment(wait):
-    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-    comment_area.clear()
-    for ch in COMMENT_TEXT:
-        comment_area.send_keys(ch)
-        time.sleep(0.08 + 0.1 * random.random())
-
-def wait_for_human_verification(driver):
-    print("[INFO] Ожидание кнопки 'Добавить' или капчи...")
-    while True:
-        try:
-            add_btn = driver.find_element(By.ID, "btn-submit-0")
-            if add_btn.is_enabled() and add_btn.is_displayed():
-                return add_btn
-        except:
-            time.sleep(1)
 
 def save_cookies(driver):
     with open("fh_cookies.pkl", "wb") as f:
@@ -89,7 +56,7 @@ def load_cookies(driver, url):
         return True
     return False
 
-def authorize_manual(driver, wait):
+def authorize_manual(driver):
     print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
     for _ in range(120):
         try:
@@ -102,19 +69,57 @@ def authorize_manual(driver, wait):
     print("[WARN] Авторизация не выполнена")
     return False
 
-def init_driver():
+def insert_comment(wait):
+    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+    comment_area.clear()
+    for ch in COMMENT_TEXT:
+        comment_area.send_keys(ch)
+        time.sleep(0.08 + 0.1 * random.random())
+    entered_text = comment_area.get_attribute("value")
+    if entered_text.strip() == COMMENT_TEXT.strip():
+        print("[INFO] Текст комментария введён по символам")
+    else:
+        print("[WARN] Текст комментария не совпадает полностью")
+
+def click_element_safe(driver, element, retries=3, delay=0.5):
+    for _ in range(retries):
+        try:
+            element.click()
+            return True
+        except ElementClickInterceptedException:
+            driver.execute_script("arguments[0].click();", element)
+            return True
+        except:
+            time.sleep(delay)
+    return False
+
+def wait_for_add_button(driver):
+    print("[INFO] Ожидание кнопки 'Добавить' или капчи...")
+    while True:
+        try:
+            add_btn = driver.find_element(By.ID, "btn-submit-0")
+            if add_btn.is_enabled() and add_btn.is_displayed():
+                return add_btn
+        except:
+            pass
+        time.sleep(1)
+
+def make_bid(url):
+    # ==== Запускаем отдельный браузер для каждого проекта ====
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument(f"--load-extension={EXTENSION_PATH}")
+    
+    # Постоянный профиль Chrome
+    profile_path = "/home/user/chrome_profile"  # <-- замените на ваш путь
+    chrome_options.add_argument(f"--user-data-dir={profile_path}")
+
+    # Подключение расширения Anti-Captcha
+    chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
+
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
-    return driver, wait
 
-def make_bid(url):
-    # ---------------- Перезапуск браузера для каждого проекта ----------------
-    driver, wait = init_driver()
     try:
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
@@ -125,7 +130,7 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print("[INFO] Cookies загружены и страница обновлена")
 
-        authorize_manual(driver, wait)
+        authorize_manual(driver)
 
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         click_element_safe(driver, bid_btn)
@@ -149,7 +154,7 @@ def make_bid(url):
 
         insert_comment(wait)
 
-        add_btn = wait_for_human_verification(driver)
+        add_btn = wait_for_add_button(driver)
         click_element_safe(driver, add_btn, retries=5, delay=1)
         print("[INFO] Ставка успешно отправлена!")
 
