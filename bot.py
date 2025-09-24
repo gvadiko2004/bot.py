@@ -1,5 +1,4 @@
 import os
-import pickle
 import re
 import threading
 import time
@@ -10,7 +9,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException, StaleElementReferenceException
+from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -39,38 +38,38 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 driver = None
 wait = None
 
+# ---------------- Инициализация браузера с постоянным профилем ----------------
+def init_driver():
+    global driver, wait
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+
+    # Путь к постоянному профилю
+    profile_path = "/home/user/chrome_profile"  # замени на свой путь
+    chrome_options.add_argument(f"--user-data-dir={profile_path}")
+
+    # Если нужно дополнительно подгружать расширение:
+    # chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    wait = WebDriverWait(driver, 30)
+    print("[INFO] Браузер запущен с постоянным профилем")
+
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def save_cookies():
-    with open("fh_cookies.pkl", "wb") as f:
-        pickle.dump(driver.get_cookies(), f)
-
-def load_cookies(url):
-    if os.path.exists("fh_cookies.pkl"):
-        with open("fh_cookies.pkl", "rb") as f:
-            cookies = pickle.load(f)
-        driver.get(url)
-        for cookie in cookies:
-            try:
-                driver.add_cookie(cookie)
-            except:
-                continue
-        return True
-    return False
-
-def authorize_manual():
-    print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
-    for _ in range(120):
+def click_element_safe(element, retries=5, delay=0.5):
+    for _ in range(retries):
         try:
-            driver.find_element(By.ID, "add-bid")
-            print("[INFO] Авторизация завершена")
-            save_cookies()
+            element.click()
+            return True
+        except ElementClickInterceptedException:
+            driver.execute_script("arguments[0].click();", element)
             return True
         except:
-            time.sleep(1)
-    print("[WARN] Авторизация не выполнена")
+            time.sleep(delay)
     return False
 
 def insert_comment():
@@ -81,22 +80,19 @@ def insert_comment():
         time.sleep(0.08 + 0.1 * random.random())
     entered_text = comment_area.get_attribute("value")
     if entered_text.strip() == COMMENT_TEXT.strip():
-        print("[INFO] Текст комментария введён по символам")
+        print("[INFO] Комментарий введен корректно")
     else:
-        print("[WARN] Текст комментария не совпадает полностью")
+        print("[WARN] Комментарий может быть неполным")
 
-def click_element_safe(locator, retries=5, delay=0.5):
-    for _ in range(retries):
+def wait_for_add_button():
+    while True:
         try:
-            element = wait.until(EC.element_to_be_clickable(locator))
-            driver.execute_script("arguments[0].scrollIntoView(true);", element)
-            element.click()
-            return True
-        except (ElementClickInterceptedException, StaleElementReferenceException):
-            driver.execute_script("arguments[0].click();", element)
+            add_btn = driver.find_element(By.ID, "btn-submit-0")
+            if add_btn.is_enabled() and add_btn.is_displayed():
+                return add_btn
         except:
-            time.sleep(delay)
-    return False
+            pass
+        time.sleep(0.5)
 
 def make_bid(url):
     try:
@@ -104,16 +100,9 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
 
-        load_cookies(url)
-        driver.refresh()
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-
-        authorize_manual()
-
         # Кнопка "Сделать ставку"
-        if not click_element_safe((By.ID, "add-bid")):
-            print("[ERROR] Не удалось нажать 'Сделать ставку'")
-            return
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_element_safe(bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
         # Ввод цены
@@ -128,7 +117,7 @@ def make_bid(url):
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # Ввод дней
+        # Ввод сроков
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
@@ -136,10 +125,9 @@ def make_bid(url):
         # Ввод комментария
         insert_comment()
 
-        # Кнопка "Добавить" (последний этап)
-        if not click_element_safe((By.ID, "btn-submit-0")):
-            print("[ERROR] Не удалось нажать 'Добавить'")
-            return
+        # Кнопка "Добавить" после прохождения капчи
+        add_btn = wait_for_add_button()
+        click_element_safe(add_btn, retries=5, delay=1)
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
@@ -147,17 +135,6 @@ def make_bid(url):
 
 def process_project(url):
     threading.Thread(target=make_bid, args=(url,), daemon=True).start()
-
-# ---------------- Запуск Chrome один раз ----------------
-def init_driver():
-    global driver, wait
-    chrome_options = Options()
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    # Путь к расширению Anti-Captcha
-    chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 30)
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -171,6 +148,7 @@ async def handler(event):
         if links:
             process_project(links[0])
 
+# ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Запускаем браузер...")
     init_driver()
