@@ -5,6 +5,7 @@ import re
 import time
 import subprocess
 import sys
+import shutil
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -53,8 +54,11 @@ chromedriver_path = "/usr/bin/chromedriver"
 # ---------------- Функции ----------------
 
 def notify_linux(title, message):
-    """Уведомление на Linux через notify-send"""
-    subprocess.run(["notify-send", title, message])
+    """Уведомление на Linux через notify-send или вывод в консоль, если нет notify-send"""
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", title, message])
+    else:
+        print(f"[NOTIFY] {title}: {message}")
 
 def play_sound_thread():
     """На Linux пока пропускаем звук"""
@@ -140,7 +144,6 @@ async def handler(event):
         print(f"🔔 Нашёл проект: {message_text[:100]}")
 
         play_sound_thread()
-
         notify_linux("Новый проект на Freelancehunt!", message_text[:150])
 
         links = extract_links(message_text)
