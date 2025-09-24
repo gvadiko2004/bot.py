@@ -2,6 +2,7 @@ from telethon import TelegramClient, events
 import threading
 import re
 import time
+import os
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -12,7 +13,7 @@ from selenium.common.exceptions import TimeoutException, ElementClickIntercepted
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
-# ==== Настройки Telegram ====
+# ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 
@@ -41,9 +42,9 @@ https://iliarchie.github.io/cates/
 Зв'яжіться зі мною в особистих повідомленнях.
 Заздалегідь дякую"""
 
-# ==== Данные авторизации Freelancehunt ====
-EMAIL = "Vlari"
-PASSWORD = "Gvadiko_2004"
+# ===== Настройки профиля Chrome =====
+USER_DATA_DIR = "/root/.config/google-chrome"  # путь к профилю, где ты авторизуешься вручную
+PROFILE_DIR = "Default"  # основной профиль Chrome
 
 # ---------------- Функции ----------------
 def type_text_slowly(element, text, delay=0.02):
@@ -54,30 +55,6 @@ def type_text_slowly(element, text, delay=0.02):
 def extract_links(text):
     cleaned_text = text.replace("**", "")
     return re.findall(r"https?://[^\s]+", cleaned_text)
-
-def login_if_needed(driver, wait):
-    """Авторизация если пользователь не залогинен"""
-    try:
-        register_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, '//a[contains(text(),"Зареєструватися та виконати проєкт")]')
-        ))
-        register_btn.click()
-        print("➡️ Перенаправление на страницу входа...")
-
-        login_input = wait.until(EC.element_to_be_clickable((By.ID, "login-0")))
-        login_input.clear()
-        type_text_slowly(login_input, EMAIL)
-
-        pass_input = wait.until(EC.element_to_be_clickable((By.ID, "password-0")))
-        pass_input.clear()
-        type_text_slowly(pass_input, PASSWORD)
-
-        pass_input.submit()
-        print("✅ Авторизация выполнена!")
-        time.sleep(3)
-
-    except TimeoutException:
-        print("🔑 Пользователь уже авторизован или кнопка не найдена.")
 
 def make_bid(driver, wait):
     """Основная логика: сделать ставку"""
@@ -134,9 +111,11 @@ def make_bid(driver, wait):
 def open_link_and_click(url):
     """Открываем ссылку и выполняем логику ставки"""
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Без GUI
+    chrome_options.add_argument(f"--user-data-dir={USER_DATA_DIR}")
+    chrome_options.add_argument(f"--profile-directory={PROFILE_DIR}")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    # Без headless, чтобы видеть действия вручную
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 20)
@@ -144,8 +123,8 @@ def open_link_and_click(url):
     try:
         driver.get(url)
         print(f"🌐 Открыта страница: {url}")
+        time.sleep(2)  # время для ручной авторизации при первом запуске
 
-        login_if_needed(driver, wait)
         make_bid(driver, wait)
 
     except Exception as e:
