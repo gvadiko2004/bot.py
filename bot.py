@@ -4,6 +4,7 @@ import re
 import threading
 import time
 import random
+import sys
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -71,10 +72,12 @@ def authorize_manual(driver):
 
 def insert_comment(wait):
     comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+
     comment_area.clear()
     for ch in COMMENT_TEXT:
         comment_area.send_keys(ch)
-        time.sleep(0.08 + 0.1 * random.random())
+        time.sleep(0.05)  # ускоренная печать
+
     entered_text = comment_area.get_attribute("value")
     if entered_text.strip() == COMMENT_TEXT.strip():
         print("[INFO] Текст комментария введён по символам")
@@ -151,6 +154,9 @@ def make_bid(url):
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
     finally:
         driver.quit()
+        # Перезапуск скрипта после каждого успешного отклика
+        print("[INFO] Перезапуск бота...")
+        os.execv(sys.executable, ['python'] + sys.argv)
 
 def process_project(url):
     threading.Thread(target=make_bid, args=(url,), daemon=True).start()
