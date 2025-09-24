@@ -71,6 +71,26 @@ def load_cookies(driver):
         return True
     return False
 
+def initial_register_click(driver, wait):
+    """Если не авторизован, нажимаем 'Зарегистрироваться и выполнить проект'"""
+    try:
+        reg_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, '//a[contains(@href,"/ua/register/freelancer")]')
+        ))
+        reg_btn.click()
+        print("[INFO] Нажата кнопка 'Зарегистрироваться и выполнить проект'")
+        time.sleep(3)
+
+        # Переход на страницу входа
+        login_link = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, '//a[contains(@href,"/ua/profile/login")]')
+        ))
+        login_link.click()
+        print("[INFO] Нажата кнопка 'Войти в существующий профиль'")
+        time.sleep(3)
+    except TimeoutException:
+        print("[INFO] Кнопка регистрации не найдена, возможно уже авторизован")
+
 def login_if_needed(driver, wait):
     """Автоматическая авторизация, если не залогинено"""
     try:
@@ -175,6 +195,9 @@ def open_link_and_click(url):
             driver.refresh()
             time.sleep(3)
 
+        # Проверка регистрации + переход на страницу логина
+        initial_register_click(driver, wait)
+
         # Авторизация если требуется
         login_if_needed(driver, wait)
 
@@ -201,6 +224,6 @@ async def handler(event):
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
-    print("✅ Бот запущен ХАХА, ждёт сообщения...")
+    print("✅ Бот запущен, ждёт сообщения...")
     client.start()
     client.run_until_disconnected()
