@@ -40,18 +40,12 @@ COMMENT_TEXT = """Доброго дня!
 
 Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO  
 
-Приклади робіт доступні в портфоліо.  
+Приклади робіт у портфоліо.  
 
-Зв'яжіться зі мною в особистих повідомленнях. Дякую!
+Зв'яжіться в особистих повідомленнях. Дякую!
 """
 
 # ---------------- Функции ----------------
-def type_slow(element, text, delay=0.02):
-    """Печать текста с задержкой по символам"""
-    for ch in text:
-        element.send_keys(ch)
-        time.sleep(delay)
-
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
@@ -83,7 +77,7 @@ def authorize_manual(driver):
     return False
 
 def make_bid(driver, wait):
-    """Делаем ставку с проверкой комментария до полного соответствия шаблону"""
+    """Делаем ставку с копипастом текста и проверкой соответствия шаблону"""
     try:
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
@@ -103,22 +97,21 @@ def make_bid(driver, wait):
 
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
-        type_slow(amount_input, price)
+        amount_input.send_keys(price)
 
         # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
-        type_slow(days_input, "3")
+        days_input.send_keys("3")
 
-        # Ввод комментария с проверкой шаблона
+        # Вставка комментария через JS
         comment_area = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
         while True:
-            comment_area.clear()
-            type_slow(comment_area, COMMENT_TEXT)
+            driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
             entered_text = comment_area.get_attribute("value")
             if entered_text.strip() == COMMENT_TEXT.strip():
                 break
-            print("[WARN] Текст комментария не совпадает с шаблоном, переписываем...")
+            print("[WARN] Текст комментария не совпадает с шаблоном, повторяем вставку...")
 
         # Кнопка 'Добавить'
         add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
