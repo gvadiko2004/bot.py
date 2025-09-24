@@ -71,42 +71,19 @@ def load_cookies(driver):
         return True
     return False
 
-def authorize(driver, wait):
-    """Авторизация на Freelancehunt"""
-    try:
-        email_input = wait.until(EC.presence_of_element_located((By.ID, "login-0")))
-        password_input = wait.until(EC.presence_of_element_located((By.ID, "password-0")))
-        submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "save-0")))
-
-        print("[INFO] Авторизация: вводим email и пароль...")
-        email_input.clear()
-        type_slow(email_input, EMAIL)
-        password_input.clear()
-        type_slow(password_input, PASSWORD)
-
-        submit_btn.click()
-        time.sleep(5)
-        save_cookies(driver)
-        print("[INFO] Авторизация успешна!")
-    except TimeoutException:
-        print("[INFO] Авторизация не требуется (уже залогинены)")
-
-def click_register(driver, wait):
-    """Нажать на 'Зарегистрироваться и выполнить проект', если есть. Если нет — остановка"""
-    try:
-        reg_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[contains(@href,"/ua/register/freelancer")]')))
-        reg_btn.click()
-        print("[INFO] Нажата кнопка регистрации")
-        time.sleep(3)
-
-        login_link = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[contains(@href,"/ua/profile/login")]')))
-        login_link.click()
-        print("[INFO] Переход на страницу входа")
-        time.sleep(3)
-    except TimeoutException:
-        print("[ERROR] Кнопка регистрации не найдена — останавливаем скрипт")
-        driver.quit()
-        raise SystemExit("[FATAL] Скрипт остановлен, кнопка регистрации не найдена")
+def authorize_manual(driver, wait):
+    """Если не авторизован — даем пользователю время войти вручную"""
+    print("[INFO] Если вы не авторизованы, войдите вручную в открывшемся браузере.")
+    # Ждем пока появится кнопка "Сделать ставку"
+    for _ in range(60):
+        try:
+            driver.find_element(By.ID, "add-bid")
+            print("[INFO] Авторизация завершена, продолжаем работу")
+            save_cookies(driver)
+            return
+        except:
+            time.sleep(1)
+    print("[WARN] Кнопка 'Сделать ставку' не найдена, продолжим попытки при следующем проекте")
 
 def make_bid(driver, wait):
     """Делаем ставку"""
@@ -152,7 +129,7 @@ def open_link_and_process(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # chrome_options.add_argument("--headless")  # для отладки VPS можно закомментировать
+    # chrome_options.add_argument("--headless")  # Не используем headless, чтобы можно было авторизоваться вручную
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 20)
@@ -161,16 +138,18 @@ def open_link_and_process(url):
         driver.get(url)
         # Ждём полной загрузки страницы
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print("[INFO] Страница полностью загружена")
+        print(f"[INFO] Страница {url} полностью загружена")
 
-        # Загружаем cookies
+        # Загружаем cookies, если есть
         if load_cookies(driver):
             driver.refresh()
             wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
             print("[INFO] Cookies загружены и страница обновлена")
 
-        click_register(driver, wait)
-        authorize(driver, wait)
+        # Проверяем регистрацию / авторизацию вручную
+        authorize_manual(driver, wait)
+
+        # Делаем ставку
         make_bid(driver, wait)
 
     except Exception as e:
