@@ -91,32 +91,27 @@ def authorize(driver, wait):
     except TimeoutException:
         print("[INFO] Авторизация не требуется (уже залогинены)")
 
-def click_register_if_present(driver, wait):
-    """Нажать на 'Зарегистрироваться и выполнить проект', если есть"""
+def click_register(driver, wait):
+    """Нажать на 'Зарегистрироваться и выполнить проект', если есть. Если нет — остановка"""
     try:
-        reg_btn = driver.find_element(By.XPATH, '//a[contains(@href,"/ua/register/freelancer")]')
+        reg_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[contains(@href,"/ua/register/freelancer")]')))
         reg_btn.click()
         print("[INFO] Нажата кнопка регистрации")
         time.sleep(3)
 
-        login_link = driver.find_element(By.XPATH, '//a[contains(@href,"/ua/profile/login")]')
+        login_link = wait.until(EC.element_to_be_clickable((By.XPATH, '//a[contains(@href,"/ua/profile/login")]')))
         login_link.click()
         print("[INFO] Переход на страницу входа")
         time.sleep(3)
-    except Exception:
-        print("[INFO] Кнопка регистрации не найдена — пропускаем")
+    except TimeoutException:
+        print("[ERROR] Кнопка регистрации не найдена — останавливаем скрипт")
+        driver.quit()
+        raise SystemExit("[FATAL] Скрипт остановлен, кнопка регистрации не найдена")
 
 def make_bid(driver, wait):
     """Делаем ставку"""
     try:
-        # Найти кнопку 'Сделать ставку'
-        try:
-            bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        except TimeoutException:
-            bid_btn = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, '//a[contains(text(),"Сделать ставку")]')
-            ))
-
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
             bid_btn.click()
         except ElementClickInterceptedException:
@@ -146,9 +141,7 @@ def make_bid(driver, wait):
         type_slow(comment_area, COMMENT_TEXT)
 
         # Кнопка 'Добавить'
-        add_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, '//button[contains(text(),"Добавить")]')
-        ))
+        add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
         add_btn.click()
         print("[INFO] Ставка отправлена!")
         time.sleep(2)
@@ -166,14 +159,17 @@ def open_link_and_process(url):
 
     try:
         driver.get(url)
-        time.sleep(5)
+        # Ждём полной загрузки страницы
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Страница полностью загружена")
 
         # Загружаем cookies
         if load_cookies(driver):
             driver.refresh()
-            time.sleep(3)
+            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+            print("[INFO] Cookies загружены и страница обновлена")
 
-        click_register_if_present(driver, wait)
+        click_register(driver, wait)
         authorize(driver, wait)
         make_bid(driver, wait)
 
