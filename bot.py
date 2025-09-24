@@ -35,57 +35,11 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
-# ---------------- Глобальные переменные ----------------
-driver = None
-wait = None
-
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def save_cookies():
-    with open("fh_cookies.pkl", "wb") as f:
-        pickle.dump(driver.get_cookies(), f)
-
-def load_cookies(url):
-    if os.path.exists("fh_cookies.pkl"):
-        with open("fh_cookies.pkl", "rb") as f:
-            cookies = pickle.load(f)
-        driver.get(url)
-        for cookie in cookies:
-            try:
-                driver.add_cookie(cookie)
-            except:
-                continue
-        return True
-    return False
-
-def authorize_manual():
-    print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
-    for _ in range(120):
-        try:
-            driver.find_element(By.ID, "add-bid")
-            print("[INFO] Авторизация завершена")
-            save_cookies()
-            return True
-        except:
-            time.sleep(1)
-    print("[WARN] Авторизация не выполнена")
-    return False
-
-def insert_comment():
-    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-    comment_area.clear()
-    for ch in COMMENT_TEXT:
-        comment_area.send_keys(ch)
-        time.sleep(0.08 + 0.1 * random.random())
-    entered_text = comment_area.get_attribute("value")
-    if entered_text.strip() == COMMENT_TEXT.strip():
-        print("[INFO] Текст комментария введён по символам")
-    else:
-        print("[WARN] Текст комментария не совпадает полностью")
-
-def click_element_safe(element, retries=3, delay=0.5):
+def click_element_safe(driver, element, retries=3, delay=0.5):
     for _ in range(retries):
         try:
             element.click()
@@ -97,32 +51,55 @@ def click_element_safe(element, retries=3, delay=0.5):
             time.sleep(delay)
     return False
 
-def wait_for_human_verification():
-    print("[INFO] Если появится reCAPTCHA или проверка 'Verify you are human', пройдите её вручную.")
+def insert_comment(wait):
+    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+    comment_area.clear()
+    for ch in COMMENT_TEXT:
+        comment_area.send_keys(ch)
+        time.sleep(0.08 + 0.1 * random.random())
+
+def wait_for_human_verification(driver):
+    print("[INFO] Ожидание кнопки 'Добавить' или капчи...")
     while True:
         try:
             add_btn = driver.find_element(By.ID, "btn-submit-0")
             if add_btn.is_enabled() and add_btn.is_displayed():
                 return add_btn
         except:
-            pass
-        time.sleep(1)
+            time.sleep(1)
 
-def make_bid(url):
+def authorize_manual(driver, wait):
+    print("[INFO] Если требуется авторизация, войдите вручную в браузере...")
+    for _ in range(120):
+        try:
+            driver.find_element(By.ID, "add-bid")
+            print("[INFO] Авторизация завершена")
+            return True
+        except:
+            time.sleep(1)
+    print("[WARN] Авторизация не выполнена")
+    return False
+
+def make_bid(url, profile_path, extension_path):
+    # ---------------- Инициализация браузера для каждого проекта ----------------
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(f"--user-data-dir={profile_path}")
+    chrome_options.add_argument(f"--load-extension={extension_path}")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    wait = WebDriverWait(driver, 30)
+
     try:
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
 
-        load_cookies(url)
-        driver.refresh()
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print("[INFO] Cookies загружены и страница обновлена")
-
-        authorize_manual()
+        authorize_manual(driver, wait)
 
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        click_element_safe(bid_btn)
+        click_element_safe(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
 
         try:
@@ -141,35 +118,16 @@ def make_bid(url):
         days_input.clear()
         days_input.send_keys("3")
 
-        insert_comment()
+        insert_comment(wait)
 
-        add_btn = wait_for_human_verification()
-        click_element_safe(add_btn, retries=5, delay=1)
+        add_btn = wait_for_human_verification(driver)
+        click_element_safe(driver, add_btn, retries=5, delay=1)
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
-
-def process_project(url):
-    threading.Thread(target=make_bid, args=(url,), daemon=True).start()
-
-# ---------------- Запуск Chrome один раз с постоянным профилем ----------------
-def init_driver():
-    global driver, wait
-    chrome_options = Options()
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    # Путь к постоянному профилю Chrome
-    profile_path = "/home/user/chrome_profile"  # <-- замените на ваш путь
-    chrome_options.add_argument(f"--user-data-dir={profile_path}")
-
-    # Подключение расширения Anti-Captcha
-    chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 30)
-    print("[INFO] Браузер запущен с постоянным профилем и расширениями")
+    finally:
+        driver.quit()  # Закрываем браузер после каждого проекта
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -181,11 +139,14 @@ async def handler(event):
         print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         if links:
-            process_project(links[0])
+            # Запуск в отдельном потоке
+            threading.Thread(
+                target=make_bid,
+                args=(links[0], "/home/user/chrome_profile", "/path/to/anticaptcha_extension"),
+                daemon=True
+            ).start()
 
 if __name__ == "__main__":
-    print("[INFO] Запускаем браузер...")
-    init_driver()
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
     client.run_until_disconnected()
