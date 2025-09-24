@@ -1,3 +1,5 @@
+import os
+import pickle
 import re
 import threading
 import time
@@ -7,13 +9,13 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException
+from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
 from telethon import TelegramClient, events
 
-# ===== Telegram =====
+# ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 
@@ -27,7 +29,9 @@ KEYWORDS = [
 ]
 KEYWORDS = [kw.lower() for kw in KEYWORDS]
 
-# ===== Комментарий =====
+# ===== Настройки Freelancehunt =====
+COOKIES_FILE = "fh_cookies.pkl"
+
 COMMENT_TEXT = """Доброго дня!  
 
 Ознайомився із завданням і готовий приступити до виконання.  
@@ -43,6 +47,47 @@ COMMENT_TEXT = """Доброго дня!
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
+def save_cookies(driver):
+    with open(COOKIES_FILE, "wb") as f:
+        pickle.dump(driver.get_cookies(), f)
+
+def load_cookies(driver, url):
+    if os.path.exists(COOKIES_FILE):
+        with open(COOKIES_FILE, "rb") as f:
+            cookies = pickle.load(f)
+        driver.get(url)
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except:
+                continue
+        return True
+    return False
+
+def authorize_manual(driver):
+    print("[INFO] Если вы не авторизованы, войдите вручную.")
+    for _ in range(120):
+        try:
+            driver.find_element(By.ID, "add-bid")
+            print("[INFO] Авторизация завершена")
+            save_cookies(driver)
+            return True
+        except:
+            time.sleep(1)
+    print("[WARN] Авторизация не выполнена")
+    return False
+
+def insert_comment(driver, wait):
+    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+    while True:
+        driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
+        entered_text = comment_area.get_attribute("value")
+        if entered_text.strip() == COMMENT_TEXT.strip():
+            print("[INFO] Текст комментария соответствует шаблону")
+            break
+        print("[WARN] Текст не совпадает, повторяем вставку...")
+        time.sleep(0.5)
+
 def click_element_safe(driver, element, retries=3, delay=0.5):
     for _ in range(retries):
         try:
@@ -55,24 +100,12 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
             time.sleep(delay)
     return False
 
-def process_project(url):
-    chrome_options = Options()
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    # chrome_options.add_argument("--headless") # можно включить, если GUI не нужен
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 30)
-
+def make_bid(driver, wait):
     try:
-        driver.get(url)
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print(f"[INFO] Обрабатываем проект: {url}")
-
-        # Ждём кнопку "Сделать ставку"
+        # Находим кнопку "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
 
-        # Первый клик — открыть форму
+        # Первый клик — открываем форму
         click_element_safe(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
 
@@ -93,21 +126,43 @@ def process_project(url):
         days_input.clear()
         days_input.send_keys("3")
 
-        # Вставка комментария через JS до точного совпадения
-        comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-        while True:
-            driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
-            if comment_area.get_attribute("value").strip() == COMMENT_TEXT.strip():
-                print("[INFO] Комментарий вставлен корректно")
-                break
-            time.sleep(0.5)
+        # Вставка комментария
+        insert_comment(driver, wait)
 
-        # Второй клик по той же кнопке "Сделать ставку" для подтверждения
-        click_element_safe(driver, bid_btn)
-        print("[INFO] Ставка подтверждена! Цикл завершён")
+        # **Второй клик** по той же кнопке для отправки заявки
+        if click_element_safe(driver, bid_btn, retries=5, delay=1):
+            print("[INFO] Ставка успешно отправлена (второй клик по кнопке)")
+        else:
+            print("[ERROR] Не удалось нажать кнопку 'Сделать ставку' второй раз")
+
+    except TimeoutException as e:
+        print(f"[ERROR] Ошибка при сделке ставки: {e}")
+
+
+def process_project(url):
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    wait = WebDriverWait(driver, 30)
+
+    try:
+        driver.get(url)
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print(f"[INFO] Обрабатываем проект: {url}")
+
+        # Загружаем cookies
+        load_cookies(driver, url)
+        driver.refresh()
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Cookies загружены и страница обновлена")
+
+        authorize_manual(driver)
+        make_bid(driver, wait)
+        print("[INFO] Проект обработан, браузер остаётся открытым")
 
     except Exception as e:
-        print(f"[ERROR] Проект не обработан: {e}")
+        print(f"[ERROR] Ошибка обработки проекта: {e}")
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
