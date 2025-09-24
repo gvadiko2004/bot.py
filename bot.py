@@ -1,3 +1,5 @@
+import os
+import pickle
 import re
 import threading
 import time
@@ -10,7 +12,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
 from telethon import TelegramClient, events
@@ -44,17 +45,49 @@ COMMENT_TEXT = """Доброго дня!
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def type_like_human(driver, element, text):
-    """Печатает текст посимвольно с имитацией пользователя"""
-    actions = ActionChains(driver)
-    actions.move_to_element(element).click().perform()
-    for ch in text:
-        element.send_keys(ch)
-        time.sleep(random.uniform(0.08, 0.18))
-        # небольшие случайные движения мыши
-        actions.move_by_offset(random.randint(-3,3), random.randint(-3,3)).perform()
+def save_cookies(driver):
+    with open("fh_cookies.pkl", "wb") as f:
+        pickle.dump(driver.get_cookies(), f)
 
-def click_element_safe(driver, element, retries=5, delay=0.5):
+def load_cookies(driver, url):
+    if os.path.exists("fh_cookies.pkl"):
+        with open("fh_cookies.pkl", "rb") as f:
+            cookies = pickle.load(f)
+        driver.get(url)
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except:
+                continue
+        return True
+    return False
+
+def authorize_manual(driver):
+    print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
+    for _ in range(120):
+        try:
+            driver.find_element(By.ID, "add-bid")
+            print("[INFO] Авторизация завершена")
+            save_cookies(driver)
+            return True
+        except:
+            time.sleep(1)
+    print("[WARN] Авторизация не выполнена")
+    return False
+
+def insert_comment(driver, wait):
+    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+    comment_area.clear()
+    for ch in COMMENT_TEXT:
+        comment_area.send_keys(ch)
+        time.sleep(0.08 + 0.1 * random.random())  # случайная задержка
+    entered_text = comment_area.get_attribute("value")
+    if entered_text.strip() == COMMENT_TEXT.strip():
+        print("[INFO] Текст комментария введён по символам")
+    else:
+        print("[WARN] Текст комментария не совпадает полностью")
+
+def click_element_safe(driver, element, retries=3, delay=0.5):
     for _ in range(retries):
         try:
             element.click()
@@ -66,14 +99,23 @@ def click_element_safe(driver, element, retries=5, delay=0.5):
             time.sleep(delay)
     return False
 
+def wait_for_human_verification(driver):
+    print("[INFO] Если появится reCAPTCHA или проверка 'Verify you are human', пройдите её вручную.")
+    while True:
+        try:
+            add_btn = driver.find_element(By.ID, "add-0")
+            if add_btn.is_enabled() and add_btn.is_displayed():
+                return add_btn
+        except:
+            pass
+        time.sleep(1)
+
 def make_bid(driver, wait):
     try:
-        # Нажимаем кнопку "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         click_element_safe(driver, bid_btn)
-        print("[INFO] Кнопка 'Сделать ставку' нажата")
+        print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
 
-        # Ввод цены
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -85,22 +127,15 @@ def make_bid(driver, wait):
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # Вставка комментария по буквам
-        comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-        type_like_human(driver, comment_area, COMMENT_TEXT)
-        print("[INFO] Комментарий введён")
+        insert_comment(driver, wait)
 
-        # Нажимаем кнопку "Добавить"
-        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
-        if click_element_safe(driver, add_btn):
-            print("[INFO] Ставка успешно отправлена!")
-        else:
-            print("[ERROR] Не удалось нажать кнопку 'Добавить'")
+        add_btn = wait_for_human_verification(driver)
+        click_element_safe(driver, add_btn, retries=5, delay=1)
+        print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
@@ -117,15 +152,12 @@ def process_project(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
 
-        # Ждём ручную авторизацию, если потребуется
-        for _ in range(120):
-            try:
-                driver.find_element(By.ID, "add-bid")
-                print("[INFO] Авторизация завершена")
-                break
-            except:
-                time.sleep(1)
+        load_cookies(driver, url)
+        driver.refresh()
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Cookies загружены и страница обновлена")
 
+        authorize_manual(driver)
         make_bid(driver, wait)
         print("[INFO] Проект обработан, браузер остаётся открытым")
 
@@ -139,11 +171,11 @@ client = TelegramClient("session", api_id, api_hash)
 async def handler(event):
     text = (event.message.text or "").lower()
     if any(k in text for k in KEYWORDS):
+        print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         if links:
             threading.Thread(target=process_project, args=(links[0],), daemon=True).start()
 
-# ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
