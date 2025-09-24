@@ -32,13 +32,13 @@ KEYWORDS = [kw.lower() for kw in KEYWORDS]
 # ===== Настройки Freelancehunt =====
 COOKIES_FILE = "fh_cookies.pkl"
 
-COMMENT_TEXT = """Доброго дня!
+COMMENT_TEXT = """Доброго дня!  
 
-Ознайомився із завданням і готовий приступити до виконання.
+Ознайомився із завданням і готовий приступити до виконання.  
 
-Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO
+Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO  
 
-Приклади робіт доступні в портфоліо.
+Приклади робіт доступні в портфоліо.  
 
 Зв'яжіться зі мною в особистих повідомленнях. Дякую!
 """
@@ -65,7 +65,7 @@ def load_cookies(driver, url):
     return False
 
 def authorize_manual(driver):
-    print("[INFO] Если вы не авторизованы, войдите вручную.")
+    print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
     for _ in range(120):
         try:
             driver.find_element(By.ID, "add-bid")
@@ -100,14 +100,26 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
             time.sleep(delay)
     return False
 
+def wait_for_human_verification(driver):
+    print("[INFO] Если появится reCAPTCHA или проверка 'Verify you are human', пройдите её вручную.")
+    while True:
+        try:
+            # Если кнопка "Добавить" уже доступна
+            add_btn = driver.find_element(By.ID, "add-0")
+            if add_btn.is_enabled() and add_btn.is_displayed():
+                return add_btn
+        except:
+            pass
+        time.sleep(1)
+
 def make_bid(driver, wait):
     try:
-        # 1. Клик по кнопке "Сделать ставку" для открытия формы
+        # Нажимаем кнопку "Сделать ставку" (открытие формы)
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         click_element_safe(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
 
-        # 2. Ввод цены
+        # Ввод цены
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -119,18 +131,20 @@ def make_bid(driver, wait):
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # 3. Ввод дней
+        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # 4. Вставка комментария
+        # Вставка комментария
         insert_comment(driver, wait)
 
-        # 5. Клик по кнопке "Добавить" для отправки заявки
-        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        # Ждём, пока пользователь пройдёт проверку reCAPTCHA (если есть)
+        add_btn = wait_for_human_verification(driver)
+
+        # После прохождения вручную — нажимаем кнопку "Добавить"
         click_element_safe(driver, add_btn, retries=5, delay=1)
-        print("[INFO] Ставка успешно отправлена! Цикл завершён")
+        print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
@@ -139,7 +153,6 @@ def process_project(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
