@@ -30,8 +30,6 @@ KEYWORDS = [
 KEYWORDS = [kw.lower() for kw in KEYWORDS]
 
 # ===== Настройки Freelancehunt =====
-EMAIL = "Vlari"
-PASSWORD = "Gvadiko_2004"
 COOKIES_FILE = "fh_cookies.pkl"
 
 COMMENT_TEXT = """Доброго дня!  
@@ -63,23 +61,35 @@ def load_cookies(driver):
     return False
 
 def authorize_manual(driver):
-    """Если не авторизован — даем пользователю время войти вручную"""
+    """Ждем ручную авторизацию пользователя"""
     print("[INFO] Если вы не авторизованы, войдите вручную в открывшемся браузере.")
-    for _ in range(120):  # Ждем до 2 минут
+    for _ in range(120):
         try:
             driver.find_element(By.ID, "add-bid")
-            print("[INFO] Авторизация завершена, продолжаем работу")
+            print("[INFO] Авторизация завершена")
             save_cookies(driver)
             return True
         except:
             time.sleep(1)
-    print("[WARN] Авторизация не выполнена, кнопка 'Сделать ставку' не найдена")
+    print("[WARN] Авторизация не выполнена, продолжим без нее")
     return False
 
+def insert_comment(driver, wait):
+    """Вставка комментария через JS до полного совпадения"""
+    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+    while True:
+        driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
+        entered_text = comment_area.get_attribute("value")
+        if entered_text.strip() == COMMENT_TEXT.strip():
+            print("[INFO] Текст комментария соответствует шаблону")
+            break
+        print("[WARN] Текст не совпадает, повторяем вставку...")
+        time.sleep(0.5)
+
 def make_bid(driver, wait):
-    """Делаем ставку с копипастом текста и проверкой соответствия шаблону"""
+    """Делаем ставку и нажимаем кнопку 'Добавить'"""
     try:
-        # 1. Нажимаем кнопку "Сделать ставку"
+        # Кнопка "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
             bid_btn.click()
@@ -87,7 +97,7 @@ def make_bid(driver, wait):
             driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-        # 2. Ввод цены
+        # Ввод цены
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -95,35 +105,27 @@ def make_bid(driver, wait):
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except Exception:
             price = "1111"
+
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # 3. Ввод дней
+        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # 4. Вставка комментария через JS и проверка совпадения
-        comment_area = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
-        while True:
-            driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
-            entered_text = comment_area.get_attribute("value")
-            if entered_text.strip() == COMMENT_TEXT.strip():
-                print("[INFO] Текст комментария соответствует шаблону")
-                break
-            print("[WARN] Текст комментария не совпадает с шаблоном, повторяем вставку...")
-            time.sleep(0.5)
+        # Вставка комментария
+        insert_comment(driver, wait)
 
-        # 5. Нажатие кнопки "Добавить"
-        add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
+        # Кнопка "Добавить" с ID btn-submit-0
+        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
         try:
             add_btn.click()
         except ElementClickInterceptedException:
             driver.execute_script("arguments[0].click();", add_btn)
         print("[INFO] Ставка отправлена успешно!")
         time.sleep(2)
-
     except Exception as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
 
@@ -131,7 +133,7 @@ def open_link_and_process(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Не headless, чтобы можно было авторизоваться вручную
+    # Оставляем GUI для ручной авторизации
     # chrome_options.add_argument("--headless")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
@@ -139,20 +141,16 @@ def open_link_and_process(url):
 
     try:
         driver.get(url)
-        # Ждём полной загрузки страницы
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница {url} полностью загружена")
 
-        # Загружаем cookies, если есть
+        # Загружаем cookies
         if load_cookies(driver):
             driver.refresh()
             wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
             print("[INFO] Cookies загружены и страница обновлена")
 
-        # Авторизация вручную, если требуется
         authorize_manual(driver)
-
-        # Делаем ставку
         make_bid(driver, wait)
 
     except Exception as e:
