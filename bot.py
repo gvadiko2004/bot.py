@@ -34,20 +34,16 @@ EMAIL = "Vlari"
 PASSWORD = "Gvadiko_2004"
 COOKIES_FILE = "fh_cookies.pkl"
 
-COMMENT_TEXT = """Доброго дня! 
+COMMENT_TEXT = """Доброго дня!  
 
-Я ознайомився із завданням і готовий приступити до якісного виконання завдання
+Ознайомився із завданням і готовий приступити до виконання.  
 
-Стек: Figma / html (bem), scss, js / WordPress ACF PRO
+Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO  
 
-Мої роботи:
-https://telya.ch/
-https://gvadiko2004.github.io/grill/
-https://gvadiko2004.github.io/Anon-shop/
-https://iliarchie.github.io/cates/
+Приклади робіт доступні в портфоліо.  
 
-Зв'яжіться зі мною в особистих повідомленнях.
-Заздалегідь дякую"""
+Зв'яжіться зі мною в особистих повідомленнях. Дякую!
+"""
 
 # ---------------- Функции ----------------
 def type_slow(element, text, delay=0.16):
