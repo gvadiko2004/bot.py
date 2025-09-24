@@ -3,6 +3,7 @@ import threading
 import re
 import time
 import os
+import pickle
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -42,9 +43,11 @@ https://iliarchie.github.io/cates/
 Зв'яжіться зі мною в особистих повідомленнях.
 Заздалегідь дякую"""
 
-# ===== Настройки профиля Chrome =====
-USER_DATA_DIR = "/root/.config/google-chrome"  # путь к профилю, где ты авторизуешься вручную
-PROFILE_DIR = "Default"  # основной профиль Chrome
+# ===== Логин для Freelancehunt =====
+EMAIL = "Vlari"
+PASSWORD = "Gvadiko_2004"
+
+COOKIES_FILE = "cookies.pkl"
 
 # ---------------- Функции ----------------
 def type_text_slowly(element, text, delay=0.02):
@@ -55,6 +58,43 @@ def type_text_slowly(element, text, delay=0.02):
 def extract_links(text):
     cleaned_text = text.replace("**", "")
     return re.findall(r"https?://[^\s]+", cleaned_text)
+
+def save_cookies(driver):
+    with open(COOKIES_FILE, "wb") as f:
+        pickle.dump(driver.get_cookies(), f)
+
+def load_cookies(driver):
+    if os.path.exists(COOKIES_FILE):
+        with open(COOKIES_FILE, "rb") as f:
+            cookies = pickle.load(f)
+        for cookie in cookies:
+            driver.add_cookie(cookie)
+        return True
+    return False
+
+def login_if_needed(driver, wait):
+    """Автоматическая авторизация, если не залогинено"""
+    try:
+        # Проверяем наличие поля логина
+        email_input = wait.until(EC.presence_of_element_located((By.ID, "login-0")))
+        password_input = wait.until(EC.presence_of_element_located((By.ID, "password-0")))
+
+        # Вводим email и пароль
+        email_input.clear()
+        type_text_slowly(email_input, EMAIL)
+        password_input.clear()
+        type_text_slowly(password_input, PASSWORD)
+
+        # Нажимаем кнопку "Войти"
+        submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "save-0")))
+        submit_btn.click()
+
+        print("✅ Авторизация выполнена!")
+        time.sleep(3)  # Ждём загрузки после логина
+        save_cookies(driver)
+
+    except TimeoutException:
+        print("✅ Уже авторизован или кнопка входа не найдена")
 
 def make_bid(driver, wait):
     """Основная логика: сделать ставку"""
@@ -111,20 +151,27 @@ def make_bid(driver, wait):
 def open_link_and_click(url):
     """Открываем ссылку и выполняем логику ставки"""
     chrome_options = Options()
-    chrome_options.add_argument(f"--user-data-dir={USER_DATA_DIR}")
-    chrome_options.add_argument(f"--profile-directory={PROFILE_DIR}")
+    chrome_options.add_argument("--headless")  # Headless для VPS
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Без headless, чтобы видеть действия вручную
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 20)
 
     try:
         driver.get(url)
-        print(f"🌐 Открыта страница: {url}")
-        time.sleep(2)  # время для ручной авторизации при первом запуске
+        time.sleep(2)
 
+        # Загружаем cookies, если есть
+        loaded = load_cookies(driver)
+        if loaded:
+            driver.refresh()
+            time.sleep(2)
+
+        # Авторизация, если cookies не действительны
+        login_if_needed(driver, wait)
+
+        # Делаем ставку
         make_bid(driver, wait)
 
     except Exception as e:
