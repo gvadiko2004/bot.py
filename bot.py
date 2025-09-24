@@ -40,9 +40,9 @@ COMMENT_TEXT = """Доброго дня!
 
 Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO  
 
-Приклади робіт у портфоліо.  
+Приклади робіт доступні в портфоліо.  
 
-Зв'яжіться в особистих повідомленнях. Дякую!
+Зв'яжіться зі мною в особистих повідомленнях. Дякую!
 """
 
 # ---------------- Функции ----------------
@@ -79,6 +79,7 @@ def authorize_manual(driver):
 def make_bid(driver, wait):
     """Делаем ставку с копипастом текста и проверкой соответствия шаблону"""
     try:
+        # 1. Нажимаем кнопку "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
             bid_btn.click()
@@ -86,7 +87,7 @@ def make_bid(driver, wait):
             driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-        # Ввод цены
+        # 2. Ввод цены
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -94,30 +95,35 @@ def make_bid(driver, wait):
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except Exception:
             price = "1111"
-
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # Ввод дней
+        # 3. Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # Вставка комментария через JS
+        # 4. Вставка комментария через JS и проверка совпадения
         comment_area = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
         while True:
             driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
             entered_text = comment_area.get_attribute("value")
             if entered_text.strip() == COMMENT_TEXT.strip():
+                print("[INFO] Текст комментария соответствует шаблону")
                 break
             print("[WARN] Текст комментария не совпадает с шаблоном, повторяем вставку...")
+            time.sleep(0.5)
 
-        # Кнопка 'Добавить'
+        # 5. Нажатие кнопки "Добавить"
         add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
-        add_btn.click()
-        print("[INFO] Ставка отправлена!")
+        try:
+            add_btn.click()
+        except ElementClickInterceptedException:
+            driver.execute_script("arguments[0].click();", add_btn)
+        print("[INFO] Ставка отправлена успешно!")
         time.sleep(2)
+
     except Exception as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
 
@@ -144,8 +150,7 @@ def open_link_and_process(url):
             print("[INFO] Cookies загружены и страница обновлена")
 
         # Авторизация вручную, если требуется
-        if not authorize_manual(driver):
-            print("[WARN] Продолжаем работу без авторизации, некоторые функции могут не работать")
+        authorize_manual(driver)
 
         # Делаем ставку
         make_bid(driver, wait)
