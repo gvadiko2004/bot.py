@@ -10,8 +10,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
+from selenium.webdriver.chrome.options import Options
 
 # ==== Настройки Telegram ====
 api_id = 21882740
@@ -31,28 +31,22 @@ COMMENT_TEXT = """Доброго дня!
 
 Я ознайомився із завданням і готовий приступити до якісного виконання завдання
 
-Стек: Figma (Дизайн) / html (bem), scss, js / WordPress ACF PRO
+Стек: Figma / html (bem), scss, js / WordPress ACF PRO
 
-Щоб ви були впевнені, що під час роботи не виникне проблем, можете ознайомитися з моєю останньою роботою:
-
+Мої роботи:
 https://telya.ch/
-
-Також наводжу посилання на інші проекти:
-
 https://gvadiko2004.github.io/grill/
 https://gvadiko2004.github.io/Anon-shop/
 https://iliarchie.github.io/cates/
 
-Якщо вас зацікавив мій відгук, зв'яжіться зі мною в особистих повідомленнях.
-
+Зв'яжіться зі мною в особистих повідомленнях.
 Заздалегідь дякую"""
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 chromedriver_path = "/usr/bin/chromedriver"  # путь к ChromeDriver
+remote_debug_port = 9222  # порт remote debugging
 
 # ---------------- Функции ----------------
 def notify_linux(title, message):
-    """Уведомление на Linux через notify-send"""
     try:
         subprocess.run(["notify-send", title, message])
         print(f"[NOTIFY] {title}: {message}")
@@ -70,11 +64,8 @@ def extract_links(text):
 
 def open_link_and_click(url):
     options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    service = Service(chromedriver_path)
-    driver = webdriver.Chrome(service=service, options=options)
+    options.debugger_address = f"127.0.0.1:{remote_debug_port}"  # подключение к уже запущенному Chrome
+    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
     wait = WebDriverWait(driver, 20)
 
     try:
@@ -141,8 +132,6 @@ def open_link_and_click(url):
 
     except Exception as e:
         print(f"❌ Ошибка в open_link_and_click: {e}")
-    finally:
-        driver.quit()
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -152,9 +141,7 @@ async def handler(event):
     message_text = (event.message.text or "").lower()
     if any(keyword in message_text for keyword in KEYWORDS):
         print(f"🔔 Нашёл проект: {message_text[:100]}")
-
         notify_linux("Новый проект на Freelancehunt!", message_text[:150])
-
         links = extract_links(message_text)
         if links:
             print(f"🌐 Открываю и кликаю по ссылке: {links[0]}")
