@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -55,7 +55,7 @@ def load_cookies(driver, url):
     if os.path.exists(COOKIES_FILE):
         with open(COOKIES_FILE, "rb") as f:
             cookies = pickle.load(f)
-        driver.get(url)  # нужно перейти на сайт перед добавлением cookies
+        driver.get(url)
         for cookie in cookies:
             try:
                 driver.add_cookie(cookie)
@@ -65,9 +65,8 @@ def load_cookies(driver, url):
     return False
 
 def authorize_manual(driver):
-    """Ждем ручную авторизацию пользователя"""
-    print("[INFO] Если вы не авторизованы, войдите вручную в открывшемся браузере.")
-    for _ in range(120):  # ждем до 2 минут
+    print("[INFO] Если вы не авторизованы, войдите вручную.")
+    for _ in range(120):
         try:
             driver.find_element(By.ID, "add-bid")
             print("[INFO] Авторизация завершена")
@@ -79,7 +78,6 @@ def authorize_manual(driver):
     return False
 
 def insert_comment(driver, wait):
-    """Вставка комментария через JS до полного совпадения"""
     comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
     while True:
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
@@ -90,15 +88,22 @@ def insert_comment(driver, wait):
         print("[WARN] Текст не совпадает, повторяем вставку...")
         time.sleep(0.5)
 
-def make_bid(driver, wait):
-    """Делаем ставку и нажимаем кнопку 'Добавить'"""
-    try:
-        # Кнопка "Сделать ставку"
-        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+def click_element_safe(driver, element, retries=3, delay=0.5):
+    for _ in range(retries):
         try:
-            bid_btn.click()
+            element.click()
+            return True
         except ElementClickInterceptedException:
-            driver.execute_script("arguments[0].click();", bid_btn)
+            driver.execute_script("arguments[0].click();", element)
+            return True
+        except:
+            time.sleep(delay)
+    return False
+
+def make_bid(driver, wait):
+    try:
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_element_safe(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
         # Ввод цены
@@ -107,9 +112,8 @@ def make_bid(driver, wait):
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
             )))
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-        except Exception:
+        except:
             price = "1111"
-
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
@@ -122,24 +126,20 @@ def make_bid(driver, wait):
         # Вставка комментария
         insert_comment(driver, wait)
 
-        # Кнопка "Добавить"
+        # Кнопка "Добавить" с повторными попытками
         add_btn = wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
-        try:
-            add_btn.click()
-        except ElementClickInterceptedException:
-            driver.execute_script("arguments[0].click();", add_btn)
-        print("[INFO] Ставка отправлена успешно!")
+        if click_element_safe(driver, add_btn, retries=5, delay=1):
+            print("[INFO] Ставка успешно отправлена!")
+        else:
+            print("[ERROR] Не удалось нажать кнопку 'Добавить'")
 
-    except Exception as e:
+    except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
 
 def process_project(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # GUI, чтобы вручную авторизоваться при необходимости
-    # chrome_options.add_argument("--headless")
-
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
@@ -154,13 +154,9 @@ def process_project(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print("[INFO] Cookies загружены и страница обновлена")
 
-        # Авторизация вручную
         authorize_manual(driver)
-
-        # Делаем ставку
         make_bid(driver, wait)
-
-        print("[INFO] Проект обработан, браузер остается открытым для нового проекта")
+        print("[INFO] Проект обработан, браузер остаётся открытым")
 
     except Exception as e:
         print(f"[ERROR] Ошибка обработки проекта: {e}")
