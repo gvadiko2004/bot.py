@@ -3,7 +3,6 @@ import pickle
 import re
 import threading
 import time
-import random
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -69,22 +68,26 @@ def authorize_manual(driver):
     print("[WARN] Авторизация не выполнена")
     return False
 
-def insert_comment(wait):
+def type_comment_slow(wait, comment_text):
+    """Вводим комментарий построчно и символ за символом"""
     comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
     comment_area.clear()
-    for ch in COMMENT_TEXT:
+    for ch in comment_text:
         comment_area.send_keys(ch)
-        time.sleep(0.05 + random.random() * 0.05)  # имитация живой печати
+        time.sleep(0.05)  # скорость печати
+    # Проверка корректности
     entered_text = comment_area.get_attribute("value")
-    if entered_text.strip() == COMMENT_TEXT.strip():
-        print("[INFO] Текст комментария введён полностью")
+    if entered_text.strip() == comment_text.strip():
+        print("[INFO] Комментарий введён полностью")
     else:
-        print("[WARN] Текст комментария не совпадает")
+        print("[WARN] Комментарий введён не полностью")
 
 def click_element_safe(driver, element, retries=5, delay=0.5):
     for _ in range(retries):
         try:
-            driver.execute_script("arguments[0].scrollIntoView(true);", element)
+            element.click()
+            return True
+        except ElementClickInterceptedException:
             driver.execute_script("arguments[0].click();", element)
             return True
         except:
@@ -95,10 +98,8 @@ def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    # Постоянный профиль Chrome
-    profile_path = "/home/user/chrome_profile"  # <-- замените на ваш путь
-    chrome_options.add_argument(f"--user-data-dir={profile_path}")
+    chrome_options.add_argument(f"--user-data-dir=/home/user/chrome_profile")  # постоянный профиль
+    chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")  # антикапча
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -115,11 +116,12 @@ def make_bid(url):
 
         authorize_manual(driver)
 
+        # Нажимаем "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         click_element_safe(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-        # Заполнение цены и сроков
+        # Получаем цену
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -128,6 +130,7 @@ def make_bid(url):
         except:
             price = "1111"
 
+        # Вводим цену и сроки
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
@@ -136,18 +139,16 @@ def make_bid(url):
         days_input.clear()
         days_input.send_keys("3")
 
-        insert_comment(wait)
+        # Вводим комментарий
+        type_comment_slow(wait, COMMENT_TEXT)
 
-        # Финальный шаг — нажатие кнопки "Добавить"
+        # Последний шаг: нажимаем "Добавить"
         add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
         click_element_safe(driver, add_btn)
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
-        print("[INFO] Пробуем заново через 3 секунды...")
-        time.sleep(3)
-        make_bid(url)  # повторяем попытку на тот же проект
     finally:
         driver.quit()
 
