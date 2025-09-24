@@ -50,7 +50,8 @@ https://iliarchie.github.io/cates/
 Заздалегідь дякую"""
 
 # ---------------- Функции ----------------
-def type_slow(element, text, delay=0.1):
+def type_slow(element, text, delay=0.16):
+    """Печать текста с задержкой по символам"""
     for ch in text:
         element.send_keys(ch)
         time.sleep(delay)
@@ -71,22 +72,22 @@ def load_cookies(driver):
         return True
     return False
 
-def authorize_manual(driver, wait):
+def authorize_manual(driver):
     """Если не авторизован — даем пользователю время войти вручную"""
     print("[INFO] Если вы не авторизованы, войдите вручную в открывшемся браузере.")
-    # Ждем пока появится кнопка "Сделать ставку"
-    for _ in range(60):
+    for _ in range(120):  # Ждем до 2 минут
         try:
             driver.find_element(By.ID, "add-bid")
             print("[INFO] Авторизация завершена, продолжаем работу")
             save_cookies(driver)
-            return
+            return True
         except:
             time.sleep(1)
-    print("[WARN] Кнопка 'Сделать ставку' не найдена, продолжим попытки при следующем проекте")
+    print("[WARN] Авторизация не выполнена, кнопка 'Сделать ставку' не найдена")
+    return False
 
 def make_bid(driver, wait):
-    """Делаем ставку"""
+    """Делаем ставку с проверкой комментария"""
     try:
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
@@ -113,9 +114,17 @@ def make_bid(driver, wait):
         days_input.clear()
         type_slow(days_input, "3")
 
-        # Комментарий
+        # Ввод комментария с проверкой
         comment_area = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
+        comment_area.clear()
         type_slow(comment_area, COMMENT_TEXT)
+
+        # Проверяем совпадение с шаблоном
+        entered_text = comment_area.get_attribute("value")
+        if entered_text.strip() != COMMENT_TEXT.strip():
+            comment_area.clear()
+            print("[WARN] Текст комментария отличается, корректируем...")
+            type_slow(comment_area, COMMENT_TEXT)
 
         # Кнопка 'Добавить'
         add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
@@ -129,10 +138,11 @@ def open_link_and_process(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # chrome_options.add_argument("--headless")  # Не используем headless, чтобы можно было авторизоваться вручную
+    # Не headless, чтобы можно было авторизоваться вручную
+    # chrome_options.add_argument("--headless")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 30)
 
     try:
         driver.get(url)
@@ -146,8 +156,9 @@ def open_link_and_process(url):
             wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
             print("[INFO] Cookies загружены и страница обновлена")
 
-        # Проверяем регистрацию / авторизацию вручную
-        authorize_manual(driver, wait)
+        # Авторизация вручную, если требуется
+        if not authorize_manual(driver):
+            print("[WARN] Продолжаем работу без авторизации, некоторые функции могут не работать")
 
         # Делаем ставку
         make_bid(driver, wait)
