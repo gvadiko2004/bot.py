@@ -35,6 +35,10 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
+# ---------------- Глобальные переменные ----------------
+driver = None
+wait = None
+
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
@@ -56,7 +60,7 @@ def load_cookies(driver, url):
         return True
     return False
 
-def authorize_manual(driver):
+def authorize_manual():
     print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
     for _ in range(120):
         try:
@@ -69,19 +73,19 @@ def authorize_manual(driver):
     print("[WARN] Авторизация не выполнена")
     return False
 
-def insert_comment(driver, wait):
+def insert_comment():
     comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
     comment_area.clear()
     for ch in COMMENT_TEXT:
         comment_area.send_keys(ch)
-        time.sleep(0.08 + 0.1 * random.random())  # случайная задержка
+        time.sleep(0.08 + 0.1 * random.random())
     entered_text = comment_area.get_attribute("value")
     if entered_text.strip() == COMMENT_TEXT.strip():
         print("[INFO] Текст комментария введён по символам")
     else:
         print("[WARN] Текст комментария не совпадает полностью")
 
-def click_element_safe(driver, element, retries=3, delay=0.5):
+def click_element_safe(element, retries=3, delay=0.5):
     for _ in range(retries):
         try:
             element.click()
@@ -93,7 +97,7 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
             time.sleep(delay)
     return False
 
-def wait_for_human_verification(driver):
+def wait_for_human_verification():
     print("[INFO] Если появится reCAPTCHA или проверка 'Verify you are human', пройдите её вручную.")
     while True:
         try:
@@ -104,10 +108,22 @@ def wait_for_human_verification(driver):
             pass
         time.sleep(1)
 
-def make_bid(driver, wait):
+def make_bid(url):
     try:
+        driver.get(url)
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print(f"[INFO] Обрабатываем проект: {url}")
+
+        # Загружаем cookies (только один раз, если нужно)
+        load_cookies(driver, url)
+        driver.refresh()
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Cookies загружены и страница обновлена")
+
+        authorize_manual()
+
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        click_element_safe(driver, bid_btn)
+        click_element_safe(bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
 
         try:
@@ -117,6 +133,7 @@ def make_bid(driver, wait):
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except:
             price = "1111"
+
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
@@ -125,38 +142,28 @@ def make_bid(driver, wait):
         days_input.clear()
         days_input.send_keys("3")
 
-        insert_comment(driver, wait)
+        insert_comment()
 
-        add_btn = wait_for_human_verification(driver)
-        click_element_safe(driver, add_btn, retries=5, delay=1)
+        add_btn = wait_for_human_verification()
+        click_element_safe(add_btn, retries=5, delay=1)
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
 
 def process_project(url):
+    threading.Thread(target=make_bid, args=(url,), daemon=True).start()
+
+# ---------------- Запуск Chrome один раз ----------------
+def init_driver():
+    global driver, wait
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    # Путь к расширению Anti-Captcha, которое уже настроено с API ключом
+    chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
-
-    try:
-        driver.get(url)
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print(f"[INFO] Обрабатываем проект: {url}")
-
-        load_cookies(driver, url)
-        driver.refresh()
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print("[INFO] Cookies загружены и страница обновлена")
-
-        authorize_manual(driver)
-        make_bid(driver, wait)
-        print("[INFO] Проект обработан, браузер остаётся открытым")
-
-    except Exception as e:
-        print(f"[ERROR] Ошибка обработки проекта: {e}")
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -168,9 +175,11 @@ async def handler(event):
         print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         if links:
-            threading.Thread(target=process_project, args=(links[0],), daemon=True).start()
+            process_project(links[0])
 
 if __name__ == "__main__":
+    print("[INFO] Запускаем браузер...")
+    init_driver()
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
     client.run_until_disconnected()
