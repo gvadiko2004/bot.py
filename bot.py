@@ -4,7 +4,6 @@ import os
 import re
 import time
 import subprocess
-import sys
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -37,119 +36,92 @@ COMMENT_TEXT = """Доброго дня!
 
 https://telya.ch/
 
-Також наводжу посилання на інші проекти:
-
+Інші проекти:
 https://gvadiko2004.github.io/grill/
 https://gvadiko2004.github.io/Anon-shop/
 https://iliarchie.github.io/cates/
 
-Якщо вас зацікавив мій відгук, зв'яжіться зі мною в особистих повідомленнях.
+Заздалегідь дякую."""
 
-Заздалегідь дякую"""
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Путь к chromedriver
 chromedriver_path = "/usr/bin/chromedriver"
 
 # ---------------- Функции ----------------
 
 def notify_linux(title, message):
-    """Безопасное уведомление на Linux через notify-send"""
+    """Уведомление на Linux через notify-send"""
     try:
         subprocess.run(["notify-send", title, message])
-    except FileNotFoundError:
         print(f"[NOTIFY] {title}: {message}")
-
-def play_sound_thread():
-    """Заглушка для звука (можно добавить воспроизведение через plyer)"""
-    pass
+    except FileNotFoundError:
+        print(f"[NOTIFY] {title}: {message} (notify-send не найден)")
 
 def extract_links(text):
-    """Извлечение ссылок из текста"""
+    """Извлекаем ссылки из текста"""
     cleaned_text = text.replace("**", "")
     return re.findall(r"https?://[^\s]+", cleaned_text)
 
 def type_text_slowly(element, text, delay=0.02):
-    """Печать текста в поле по символу"""
+    """Ввод текста по символам"""
     for ch in text:
         element.send_keys(ch)
         time.sleep(delay)
 
 def open_link_and_click(url):
-    """Открытие ссылки и заполнение формы через Selenium"""
+    """Открываем проект Freelancehunt и автоматически подаем ставку"""
     options = Options()
-    options.add_argument("--headless")
+    options.add_argument("--headless")  # можно закомментировать для дебага
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     service = Service(chromedriver_path)
     driver = webdriver.Chrome(service=service, options=options)
 
     try:
         driver.get(url)
-        time.sleep(5)  # дождаться полной загрузки
         wait = WebDriverWait(driver, 20)
 
-        # Кнопка "Сделать ставку"
+        # Попытка найти кнопку "Сделать ставку" по тексту или id
         try:
-            button = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+            button = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//button[contains(text(), 'Сделать ставку') or @id='add-bid']")))
             button.click()
-            print("✅ Кнопка 'Сделать ставку' нажата!")
-        except Exception:
+            print("✅ Кнопка 'Сделать ставку' найдена и нажата!")
+        except:
             print("⚠️ Кнопка 'Сделать ставку' не найдена на странице")
-            with open("debug_page.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
             return
 
-        # Сумма заказа
+        # Сумма заказа (если есть)
         try:
-            price_span = wait.until(EC.presence_of_element_located((
-                By.CSS_SELECTOR,
-                "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-            )))
+            price_span = driver.find_element(By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs")
             raw_price = price_span.text
             price_digits = re.sub(r"[^\d]", "", raw_price) or "1111"
-        except Exception:
+        except:
             price_digits = "1111"
 
-        # Ввод суммы
+        # Ввод данных
         try:
-            amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+            amount_input = driver.find_element(By.ID, "amount-0")
             amount_input.clear()
             type_text_slowly(amount_input, price_digits)
-        except Exception:
-            print("⚠️ Поле для суммы не найдено")
 
-        # Ввод дней
-        try:
-            days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+            days_input = driver.find_element(By.ID, "days_to_deliver-0")
             days_input.clear()
             type_text_slowly(days_input, "3")
-        except Exception:
-            print("⚠️ Поле для дней не найдено")
 
-        # Ввод комментария
-        try:
-            textarea = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
+            textarea = driver.find_element(By.ID, "comment-0")
             type_text_slowly(textarea, COMMENT_TEXT)
-        except Exception:
-            print("⚠️ Поле для комментария не найдено")
 
-        # Кнопка "Добавить"
-        try:
-            submit_btn = wait.until(EC.element_to_be_clickable((
-                By.CSS_SELECTOR,
-                "button#add-0.btn.btn-primary.btn-lg.ladda-button"
-            )))
+            submit_btn = driver.find_element(By.CSS_SELECTOR, "button#add-0.btn.btn-primary.btn-lg.ladda-button")
             submit_btn.click()
-            print("✅ Кнопка 'Добавить' нажата! Задача выполнена.")
-        except Exception:
-            print("⚠️ Кнопка 'Добавить' не найдена")
+            print("✅ Ставка отправлена!")
+        except Exception as e:
+            print(f"⚠️ Не удалось заполнить форму: {e}")
 
         time.sleep(3)
 
     except Exception as e:
         print(f"❌ Ошибка в open_link_and_click: {e}")
-        with open("debug_page.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
     finally:
         driver.quit()
 
@@ -163,9 +135,10 @@ async def handler(event):
     if any(keyword in message_text for keyword in KEYWORDS):
         print(f"🔔 Нашёл проект: {message_text[:100]}")
 
-        play_sound_thread()
+        # Уведомление
         notify_linux("Новый проект на Freelancehunt!", message_text[:150])
 
+        # Ссылки
         links = extract_links(message_text)
         if links:
             print(f"🌐 Открываю и кликаю по ссылке: {links[0]}")
