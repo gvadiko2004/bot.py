@@ -86,29 +86,12 @@ def insert_comment(driver, wait):
         print("[WARN] Текст не совпадает, повторяем вставку...")
         time.sleep(0.5)
 
-def make_bid(url):
-    """Полный цикл обработки одной ссылки"""
-    chrome_options = Options()
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    # Для возможности ручной авторизации
-    # chrome_options.add_argument("--headless")
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 30)
-
+def process_project(url, driver, wait):
+    """Обработка отдельного проекта в рамках одной сессии браузера"""
     try:
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница {url} полностью загружена")
-
-        # Подгружаем cookies, если есть
-        if load_cookies(driver):
-            driver.refresh()
-            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-            print("[INFO] Cookies загружены и страница обновлена")
-
-        authorize_manual(driver)
 
         # Кнопка "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
@@ -149,8 +132,24 @@ def make_bid(url):
 
     except Exception as e:
         print(f"[ERROR] Ошибка обработки ссылки {url}: {e}")
-    finally:
-        driver.quit()
+
+# ---------------- Инициализация браузера ----------------
+chrome_options = Options()
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
+# chrome_options.add_argument("--headless")  # GUI нужен для авторизации
+
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+wait = WebDriverWait(driver, 30)
+
+# Загружаем cookies, если есть
+if load_cookies(driver):
+    driver.refresh()
+    wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+    print("[INFO] Cookies загружены и страница обновлена")
+
+# Авторизация вручную, если требуется
+authorize_manual(driver)
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -162,12 +161,11 @@ async def handler(event):
         print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         for link in links:
-            print(f"[INFO] Открываем: {link}")
-            # Новый поток на каждую ссылку, полностью чистый цикл
-            threading.Thread(target=make_bid, args=(link,), daemon=True).start()
+            print(f"[INFO] Обрабатываем проект: {link}")
+            threading.Thread(target=process_project, args=(link, driver, wait), daemon=True).start()
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
-    print("[INFO] Бот запущен, ждём сообщения...")
+    print("[INFO] Бот запущен, ждём новые проекты...")
     client.start()
     client.run_until_disconnected()
