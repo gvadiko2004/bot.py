@@ -5,6 +5,7 @@ import threading
 import time
 import random
 import sys
+import subprocess
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -95,7 +96,8 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
     return False
 
 def make_bid(url):
-    while True:  # бесконечный цикл до успешной отправки
+    """Основной цикл работы с проектом"""
+    while True:
         chrome_options = Options()
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -145,8 +147,12 @@ def make_bid(url):
             print("[INFO] Ставка успешно отправлена!")
 
             driver.quit()
-            print("[INFO] Перезапуск бота после успешного отклика...")
-            os.execv(sys.executable, ['python'] + sys.argv)
+
+            # Остановка скрипта и перезапуск через 3 секунды
+            print("[INFO] Остановка скрипта. Перезапуск через 3 секунды...")
+            time.sleep(3)
+            subprocess.Popen([sys.executable] + sys.argv)
+            sys.exit(0)
 
         except (TimeoutException, WebDriverException) as e:
             print(f"[ERROR] Ошибка при обработке проекта: {e}. Пробуем снова через 5 секунд...")
@@ -156,7 +162,7 @@ def make_bid(url):
                 pass
             time.sleep(5)
         except Exception as e:
-            print(f"[ERROR] Неизвестная ошибка: {e}. Перезапуск через 5 секунд...")
+            print(f"[ERROR] Неизвестная ошибка: {e}. Пробуем снова через 5 секунд...")
             try:
                 driver.quit()
             except:
