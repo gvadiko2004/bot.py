@@ -5,7 +5,6 @@ import re
 import time
 import subprocess
 import sys
-import shutil
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -54,26 +53,29 @@ chromedriver_path = "/usr/bin/chromedriver"
 # ---------------- Функции ----------------
 
 def notify_linux(title, message):
-    """Уведомление на Linux через notify-send или вывод в консоль, если нет notify-send"""
-    if shutil.which("notify-send"):
+    """Безопасное уведомление на Linux через notify-send"""
+    try:
         subprocess.run(["notify-send", title, message])
-    else:
+    except FileNotFoundError:
         print(f"[NOTIFY] {title}: {message}")
 
 def play_sound_thread():
-    """На Linux пока пропускаем звук"""
+    """Заглушка для звука (можно добавить воспроизведение через plyer)"""
     pass
 
 def extract_links(text):
+    """Извлечение ссылок из текста"""
     cleaned_text = text.replace("**", "")
     return re.findall(r"https?://[^\s]+", cleaned_text)
 
 def type_text_slowly(element, text, delay=0.02):
+    """Печать текста в поле по символу"""
     for ch in text:
         element.send_keys(ch)
         time.sleep(delay)
 
 def open_link_and_click(url):
+    """Открытие ссылки и заполнение формы через Selenium"""
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
@@ -83,12 +85,19 @@ def open_link_and_click(url):
 
     try:
         driver.get(url)
+        time.sleep(5)  # дождаться полной загрузки
         wait = WebDriverWait(driver, 20)
 
         # Кнопка "Сделать ставку"
-        button = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        button.click()
-        print("✅ Кнопка 'Сделать ставку' нажата!")
+        try:
+            button = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+            button.click()
+            print("✅ Кнопка 'Сделать ставку' нажата!")
+        except Exception:
+            print("⚠️ Кнопка 'Сделать ставку' не найдена на странице")
+            with open("debug_page.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            return
 
         # Сумма заказа
         try:
@@ -98,38 +107,49 @@ def open_link_and_click(url):
             )))
             raw_price = price_span.text
             price_digits = re.sub(r"[^\d]", "", raw_price) or "1111"
-            print(f"💰 Сумма для ввода: {price_digits}")
         except Exception:
             price_digits = "1111"
-            print("⚠️ Сумма не найдена, вводим 1111")
 
         # Ввод суммы
-        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
-        amount_input.clear()
-        type_text_slowly(amount_input, price_digits)
+        try:
+            amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+            amount_input.clear()
+            type_text_slowly(amount_input, price_digits)
+        except Exception:
+            print("⚠️ Поле для суммы не найдено")
 
         # Ввод дней
-        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
-        days_input.clear()
-        type_text_slowly(days_input, "3")
+        try:
+            days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+            days_input.clear()
+            type_text_slowly(days_input, "3")
+        except Exception:
+            print("⚠️ Поле для дней не найдено")
 
         # Ввод комментария
-        textarea = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
-        type_text_slowly(textarea, COMMENT_TEXT)
+        try:
+            textarea = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
+            type_text_slowly(textarea, COMMENT_TEXT)
+        except Exception:
+            print("⚠️ Поле для комментария не найдено")
 
-        print("✅ Все данные введены, нажимаем кнопку 'Добавить'...")
-
-        submit_btn = wait.until(EC.element_to_be_clickable((
-            By.CSS_SELECTOR,
-            "button#add-0.btn.btn-primary.btn-lg.ladda-button"
-        )))
-        submit_btn.click()
-        print("✅ Кнопка 'Добавить' нажата! Задача выполнена.")
+        # Кнопка "Добавить"
+        try:
+            submit_btn = wait.until(EC.element_to_be_clickable((
+                By.CSS_SELECTOR,
+                "button#add-0.btn.btn-primary.btn-lg.ladda-button"
+            )))
+            submit_btn.click()
+            print("✅ Кнопка 'Добавить' нажата! Задача выполнена.")
+        except Exception:
+            print("⚠️ Кнопка 'Добавить' не найдена")
 
         time.sleep(3)
 
     except Exception as e:
         print(f"❌ Ошибка в open_link_and_click: {e}")
+        with open("debug_page.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
     finally:
         driver.quit()
 
