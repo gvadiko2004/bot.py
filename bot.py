@@ -46,7 +46,6 @@ https://iliarchie.github.io/cates/
 # ===== Логин для Freelancehunt =====
 EMAIL = "Vlari"
 PASSWORD = "Gvadiko_2004"
-
 COOKIES_FILE = "cookies.pkl"
 
 # ---------------- Функции ----------------
@@ -75,37 +74,44 @@ def load_cookies(driver):
 def login_if_needed(driver, wait):
     """Автоматическая авторизация, если не залогинено"""
     try:
-        # Проверяем наличие поля логина
         email_input = wait.until(EC.presence_of_element_located((By.ID, "login-0")))
         password_input = wait.until(EC.presence_of_element_located((By.ID, "password-0")))
 
-        # Вводим email и пароль
+        print("[INFO] Авторизация требуется, вводим email и пароль...")
         email_input.clear()
         type_text_slowly(email_input, EMAIL)
         password_input.clear()
         type_text_slowly(password_input, PASSWORD)
 
-        # Нажимаем кнопку "Войти"
         submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "save-0")))
         submit_btn.click()
 
         print("✅ Авторизация выполнена!")
-        time.sleep(3)  # Ждём загрузки после логина
+        time.sleep(5)  # ждём загрузки после логина
         save_cookies(driver)
-
     except TimeoutException:
         print("✅ Уже авторизован или кнопка входа не найдена")
 
 def make_bid(driver, wait):
     """Основная логика: сделать ставку"""
     try:
-        # Кнопка "Сделать ставку"
+        # Ищем кнопку "Сделать ставку" несколькими способами
+        button = None
         try:
             button = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         except TimeoutException:
-            button = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, '//a[contains(text(),"Сделать ставку")]')
-            ))
+            try:
+                button = wait.until(EC.element_to_be_clickable(
+                    (By.XPATH, '//a[contains(text(),"Сделать ставку")]')
+                ))
+            except TimeoutException:
+                try:
+                    button = wait.until(EC.element_to_be_clickable(
+                        (By.CSS_SELECTOR, ".btn.btn-primary.btn-md")
+                    ))
+                except TimeoutException:
+                    print("❌ Кнопка 'Сделать ставку' не найдена")
+                    return
 
         try:
             button.click()
@@ -138,7 +144,7 @@ def make_bid(driver, wait):
         textarea = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
         type_text_slowly(textarea, COMMENT_TEXT)
 
-        # Кнопка "Добавить"
+        # Нажимаем кнопку "Добавить"
         submit_btn = wait.until(EC.element_to_be_clickable(
             (By.XPATH, '//button[contains(text(),"Добавить")]')
         ))
@@ -151,7 +157,8 @@ def make_bid(driver, wait):
 def open_link_and_click(url):
     """Открываем ссылку и выполняем логику ставки"""
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Headless для VPS
+    # --- Для VPS: закомментировать headless на время отладки ---
+    # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
 
@@ -160,15 +167,15 @@ def open_link_and_click(url):
 
     try:
         driver.get(url)
-        time.sleep(2)
+        print(f"[INFO] Открыта страница: {url}")
+        time.sleep(5)  # ждём подгрузки страницы
 
-        # Загружаем cookies, если есть
-        loaded = load_cookies(driver)
-        if loaded:
+        # Загружаем cookies
+        if load_cookies(driver):
             driver.refresh()
-            time.sleep(2)
+            time.sleep(3)
 
-        # Авторизация, если cookies не действительны
+        # Авторизация если требуется
         login_if_needed(driver, wait)
 
         # Делаем ставку
