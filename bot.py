@@ -2,6 +2,7 @@ import re
 import threading
 import time
 import random
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -11,6 +12,7 @@ from selenium.common.exceptions import ElementClickInterceptedException, Timeout
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
+
 from telethon import TelegramClient, events
 
 # ===== Настройки Telegram =====
@@ -27,7 +29,6 @@ KEYWORDS = [
 ]
 KEYWORDS = [kw.lower() for kw in KEYWORDS]
 
-# ===== Текст заявки =====
 COMMENT_TEXT = """Доброго дня!  
 
 Ознайомився із завданням і готовий приступити до виконання.  
@@ -44,13 +45,13 @@ def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
 def type_like_human(driver, element, text):
-    """Печатает текст посимвольно с движением мыши"""
+    """Печатает текст посимвольно с имитацией пользователя"""
     actions = ActionChains(driver)
     actions.move_to_element(element).click().perform()
     for ch in text:
         element.send_keys(ch)
         time.sleep(random.uniform(0.08, 0.18))
-        # случайно немного сдвигаем курсор
+        # небольшие случайные движения мыши
         actions.move_by_offset(random.randint(-3,3), random.randint(-3,3)).perform()
 
 def click_element_safe(driver, element, retries=5, delay=0.5):
@@ -65,53 +66,44 @@ def click_element_safe(driver, element, retries=5, delay=0.5):
             time.sleep(delay)
     return False
 
-def wait_for_human_verification(driver):
-    """Ждем, пока кнопка 'Добавить' станет кликабельной"""
-    while True:
-        try:
-            add_btn = driver.find_element(By.ID, "add-0")
-            if add_btn.is_enabled() and add_btn.is_displayed():
-                return add_btn
-        except:
-            pass
-        time.sleep(1)
-
 def make_bid(driver, wait):
-    # Кнопка "Сделать ставку"
-    bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-    click_element_safe(driver, bid_btn)
-    print("[INFO] Кнопка 'Сделать ставку' нажата")
-
-    # Ввод цены
     try:
-        price_span = wait.until(EC.presence_of_element_located((
-            By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-        )))
-        price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-    except:
-        price = "1111"
-    amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
-    amount_input.clear()
-    amount_input.send_keys(price)
+        # Нажимаем кнопку "Сделать ставку"
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_element_safe(driver, bid_btn)
+        print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-    # Ввод дней
-    days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
-    days_input.clear()
-    days_input.send_keys("3")
+        # Ввод цены
+        try:
+            price_span = wait.until(EC.presence_of_element_located((
+                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
+            )))
+            price = re.sub(r"[^\d]", "", price_span.text) or "1111"
+        except:
+            price = "1111"
+        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        amount_input.clear()
+        amount_input.send_keys(price)
 
-    # Вставка комментария с имитацией печати
-    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-    type_like_human(driver, comment_area, COMMENT_TEXT)
-    print("[INFO] Комментарий введён")
+        # Ввод дней
+        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        days_input.clear()
+        days_input.send_keys("3")
 
-    # Ждем ручное решение reCAPTCHA, если есть
-    add_btn = wait_for_human_verification(driver)
+        # Вставка комментария по буквам
+        comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+        type_like_human(driver, comment_area, COMMENT_TEXT)
+        print("[INFO] Комментарий введён")
 
-    # Нажимаем кнопку "Добавить"
-    if click_element_safe(driver, add_btn):
-        print("[INFO] Ставка успешно отправлена!")
-    else:
-        print("[ERROR] Не удалось нажать кнопку 'Добавить'")
+        # Нажимаем кнопку "Добавить"
+        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        if click_element_safe(driver, add_btn):
+            print("[INFO] Ставка успешно отправлена!")
+        else:
+            print("[ERROR] Не удалось нажать кнопку 'Добавить'")
+
+    except TimeoutException as e:
+        print(f"[ERROR] Ошибка при сделке ставки: {e}")
 
 def process_project(url):
     chrome_options = Options()
@@ -125,7 +117,7 @@ def process_project(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Обрабатываем проект: {url}")
 
-        # Ждём авторизацию вручную, если нужно
+        # Ждём ручную авторизацию, если потребуется
         for _ in range(120):
             try:
                 driver.find_element(By.ID, "add-bid")
