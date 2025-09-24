@@ -86,9 +86,30 @@ def insert_comment(driver, wait):
         print("[WARN] Текст не совпадает, повторяем вставку...")
         time.sleep(0.5)
 
-def make_bid(driver, wait):
-    """Делаем ставку и нажимаем кнопку 'Добавить'"""
+def make_bid(url):
+    """Полный цикл обработки одной ссылки"""
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    # Для возможности ручной авторизации
+    # chrome_options.add_argument("--headless")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    wait = WebDriverWait(driver, 30)
+
     try:
+        driver.get(url)
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print(f"[INFO] Страница {url} полностью загружена")
+
+        # Подгружаем cookies, если есть
+        if load_cookies(driver):
+            driver.refresh()
+            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+            print("[INFO] Cookies загружены и страница обновлена")
+
+        authorize_manual(driver)
+
         # Кнопка "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
@@ -125,36 +146,9 @@ def make_bid(driver, wait):
         except ElementClickInterceptedException:
             driver.execute_script("arguments[0].click();", add_btn)
         print("[INFO] Ставка отправлена успешно!")
-        time.sleep(2)
-    except Exception as e:
-        print(f"[ERROR] Ошибка при сделке ставки: {e}")
-
-def open_link_and_process(url):
-    chrome_options = Options()
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    # Оставляем GUI для ручной авторизации
-    # chrome_options.add_argument("--headless")
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    wait = WebDriverWait(driver, 30)
-
-    try:
-        driver.get(url)
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print(f"[INFO] Страница {url} полностью загружена")
-
-        # Загружаем cookies
-        if load_cookies(driver):
-            driver.refresh()
-            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-            print("[INFO] Cookies загружены и страница обновлена")
-
-        authorize_manual(driver)
-        make_bid(driver, wait)
 
     except Exception as e:
-        print(f"[ERROR] Ошибка обработки ссылки: {e}")
+        print(f"[ERROR] Ошибка обработки ссылки {url}: {e}")
     finally:
         driver.quit()
 
@@ -167,9 +161,10 @@ async def handler(event):
     if any(k in text for k in KEYWORDS):
         print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
-        if links:
-            print(f"[INFO] Открываем: {links[0]}")
-            threading.Thread(target=open_link_and_process, args=(links[0],), daemon=True).start()
+        for link in links:
+            print(f"[INFO] Открываем: {link}")
+            # Новый поток на каждую ссылку, полностью чистый цикл
+            threading.Thread(target=make_bid, args=(link,), daemon=True).start()
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
