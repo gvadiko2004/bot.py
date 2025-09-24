@@ -32,13 +32,13 @@ KEYWORDS = [kw.lower() for kw in KEYWORDS]
 # ===== Настройки Freelancehunt =====
 COOKIES_FILE = "fh_cookies.pkl"
 
-COMMENT_TEXT = """Доброго дня!  
+COMMENT_TEXT = """Доброго дня!
 
-Ознайомився із завданням і готовий приступити до виконання.  
+Ознайомився із завданням і готовий приступити до виконання.
 
-Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO  
+Стек: Figma / HTML (BEM), SCSS, JS / WordPress ACF PRO
 
-Приклади робіт доступні в портфоліо.  
+Приклади робіт доступні в портфоліо.
 
 Зв'яжіться зі мною в особистих повідомленнях. Дякую!
 """
@@ -102,10 +102,8 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
 
 def make_bid(driver, wait):
     try:
-        # Находим кнопку "Сделать ставку"
+        # Первый клик по кнопке "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-
-        # Первый клик — открываем форму
         click_element_safe(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
 
@@ -129,20 +127,21 @@ def make_bid(driver, wait):
         # Вставка комментария
         insert_comment(driver, wait)
 
-        # **Второй клик** по той же кнопке для отправки заявки
-        if click_element_safe(driver, bid_btn, retries=5, delay=1):
-            print("[INFO] Ставка успешно отправлена (второй клик по кнопке)")
-        else:
-            print("[ERROR] Не удалось нажать кнопку 'Сделать ставку' второй раз")
+        # Второй клик по той же кнопке "Сделать ставку" для отправки
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_element_safe(driver, bid_btn, retries=5, delay=1)
+        print("[INFO] Ставка успешно отправлена (второй клик по кнопке)")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при сделке ставки: {e}")
-
 
 def process_project(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    # GUI, чтобы можно было авторизоваться вручную
+    # chrome_options.add_argument("--headless")
+    
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
@@ -159,7 +158,7 @@ def process_project(url):
 
         authorize_manual(driver)
         make_bid(driver, wait)
-        print("[INFO] Проект обработан, браузер остаётся открытым")
+        print("[INFO] Проект обработан, браузер остаётся открытым для следующего проекта")
 
     except Exception as e:
         print(f"[ERROR] Ошибка обработки проекта: {e}")
