@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
 # ==== Настройки Telegram ====
 api_id = 21882740
@@ -46,94 +47,94 @@ https://iliarchie.github.io/cates/
 
 Заздалегідь дякую"""
 
-chromedriver_path = "/usr/bin/chromedriver"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+chromedriver_path = "/usr/bin/chromedriver"  # путь к ChromeDriver
 
 # ---------------- Функции ----------------
-
 def notify_linux(title, message):
     """Уведомление на Linux через notify-send"""
     try:
         subprocess.run(["notify-send", title, message])
-    except FileNotFoundError:
         print(f"[NOTIFY] {title}: {message}")
-
-def extract_links(text):
-    """Извлекаем все ссылки из текста"""
-    cleaned_text = text.replace("**", "")
-    return re.findall(r"https?://[^\s]+", cleaned_text)
+    except FileNotFoundError:
+        print(f"[NOTIFY] {title}: {message} (notify-send не найден)")
 
 def type_text_slowly(element, text, delay=0.02):
-    """Имитируем медленный ввод текста"""
     for ch in text:
         element.send_keys(ch)
         time.sleep(delay)
 
-def find_button_by_text(driver, text_options, timeout=20):
-    """Ищем кнопку по тексту (поддержка нескольких вариантов текста)"""
-    wait = WebDriverWait(driver, timeout)
-    for text in text_options:
-        try:
-            button = wait.until(
-                EC.element_to_be_clickable((By.XPATH, f"//button[contains(text(), '{text}')]"))
-            )
-            return button
-        except:
-            continue
-    return None
+def extract_links(text):
+    cleaned_text = text.replace("**", "")
+    return re.findall(r"https?://[^\s]+", cleaned_text)
 
 def open_link_and_click(url):
-    """Открываем ссылку и автоматически делаем ставку"""
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     service = Service(chromedriver_path)
     driver = webdriver.Chrome(service=service, options=options)
+    wait = WebDriverWait(driver, 20)
 
     try:
         driver.get(url)
-        time.sleep(2)  # Ждем подгрузки JS
+        print(f"🌐 Открыта страница: {url}")
 
-        # 1️⃣ Найти и нажать кнопку "Сделать ставку"
-        button1 = find_button_by_text(driver, ["Сделать ставку"])
-        if not button1:
-            print("⚠️ Кнопка 'Сделать ставку' не найдена на странице")
-            return
-        button1.click()
-        print("✅ Кнопка 'Сделать ставку' нажата!")
-
-        # 2️⃣ Ввод суммы и дней
+        # --- Находим кнопку "Сделать ставку" ---
+        button = None
         try:
-            price_span = driver.find_element(By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs")
-            price_digits = re.sub(r"[^\d]", "", price_span.text) or "1111"
-        except:
+            button = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        except TimeoutException:
+            try:
+                button = wait.until(EC.element_to_be_clickable(
+                    (By.XPATH, '//a[contains(text(),"Сделать ставку")]')
+                ))
+            except TimeoutException:
+                print("❌ Кнопка 'Сделать ставку' не найдена")
+                return
+
+        try:
+            button.click()
+            print("✅ Кнопка 'Сделать ставку' нажата!")
+        except ElementClickInterceptedException:
+            driver.execute_script("arguments[0].click();", button)
+            print("✅ Кнопка 'Сделать ставку' нажата через JS!")
+
+        time.sleep(2)
+
+        # --- Ввод суммы ---
+        try:
+            price_span = wait.until(EC.presence_of_element_located((
+                By.CSS_SELECTOR,
+                "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
+            )))
+            raw_price = price_span.text
+            price_digits = re.sub(r"[^\d]", "", raw_price) or "1111"
+        except Exception:
             price_digits = "1111"
-        try:
-            amount_input = driver.find_element(By.ID, "amount-0")
-            amount_input.clear()
-            type_text_slowly(amount_input, price_digits)
-        except:
-            print("⚠️ Поле суммы не найдено, пропускаем")
 
-        try:
-            days_input = driver.find_element(By.ID, "days_to_deliver-0")
-            days_input.clear()
-            type_text_slowly(days_input, "3")
-        except:
-            print("⚠️ Поле дней не найдено, пропускаем")
+        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        amount_input.clear()
+        type_text_slowly(amount_input, price_digits)
 
-        try:
-            textarea = driver.find_element(By.ID, "comment-0")
-            type_text_slowly(textarea, COMMENT_TEXT)
-        except:
-            print("⚠️ Поле комментария не найдено, пропускаем")
+        # --- Ввод дней ---
+        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        days_input.clear()
+        type_text_slowly(days_input, "3")
 
-        # 3️⃣ Нажать кнопку "Добавить" (раньше была "Сделать ставку")
-        button2 = find_button_by_text(driver, ["Добавить", "Сделать ставку"])
-        if button2:
-            button2.click()
+        # --- Ввод комментария ---
+        textarea = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
+        type_text_slowly(textarea, COMMENT_TEXT)
+
+        # --- Нажатие кнопки "Добавить" ---
+        try:
+            submit_btn = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, '//button[contains(text(),"Добавить")]')
+            ))
+            submit_btn.click()
             print("✅ Кнопка 'Добавить' нажата! Задача выполнена.")
-        else:
+        except TimeoutException:
             print("⚠️ Кнопка 'Добавить' не найдена")
 
         time.sleep(2)
@@ -144,7 +145,6 @@ def open_link_and_click(url):
         driver.quit()
 
 # ---------------- Телеграм ----------------
-
 client = TelegramClient("session", api_id, api_hash)
 
 @client.on(events.NewMessage)
@@ -161,8 +161,7 @@ async def handler(event):
             threading.Thread(target=open_link_and_click, args=(links[0],), daemon=True).start()
 
 # ---------------- Запуск ----------------
-
 if __name__ == "__main__":
-    print("✅ Бот ХАХА запущен, ждёт сообщения...")
+    print("✅ Бот запущен, ждёт сообщения...")
     client.start()
     client.run_until_disconnected()
