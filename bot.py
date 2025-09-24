@@ -4,15 +4,13 @@ import re
 import threading
 import time
 import random
-import sys
-import subprocess
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException, WebDriverException
+from selenium.common.exceptions import ElementClickInterceptedException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -76,19 +74,17 @@ def insert_comment(wait):
     comment_area.clear()
     for ch in COMMENT_TEXT:
         comment_area.send_keys(ch)
-        time.sleep(0.05)  # ускоренная печать
+        time.sleep(0.05 + random.random() * 0.05)  # имитация живой печати
     entered_text = comment_area.get_attribute("value")
     if entered_text.strip() == COMMENT_TEXT.strip():
-        print("[INFO] Текст комментария введён по символам")
+        print("[INFO] Текст комментария введён полностью")
     else:
-        print("[WARN] Текст комментария не совпадает полностью")
+        print("[WARN] Текст комментария не совпадает")
 
-def click_element_safe(driver, element, retries=3, delay=0.5):
+def click_element_safe(driver, element, retries=5, delay=0.5):
     for _ in range(retries):
         try:
-            element.click()
-            return True
-        except ElementClickInterceptedException:
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
             driver.execute_script("arguments[0].click();", element)
             return True
         except:
@@ -96,78 +92,64 @@ def click_element_safe(driver, element, retries=3, delay=0.5):
     return False
 
 def make_bid(url):
-    """Основной цикл работы с проектом"""
-    while True:
-        chrome_options = Options()
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        profile_path = "/home/user/chrome_profile"  # <-- замените на ваш путь
-        chrome_options.add_argument(f"--user-data-dir={profile_path}")
-        chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    # Постоянный профиль Chrome
+    profile_path = "/home/user/chrome_profile"  # <-- замените на ваш путь
+    chrome_options.add_argument(f"--user-data-dir={profile_path}")
 
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    wait = WebDriverWait(driver, 30)
+
+    try:
+        driver.get(url)
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print(f"[INFO] Обрабатываем проект: {url}")
+
+        load_cookies(driver, url)
+        driver.refresh()
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Cookies загружены и страница обновлена")
+
+        authorize_manual(driver)
+
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_element_safe(driver, bid_btn)
+        print("[INFO] Кнопка 'Сделать ставку' нажата")
+
+        # Заполнение цены и сроков
         try:
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-            wait = WebDriverWait(driver, 30)
+            price_span = wait.until(EC.presence_of_element_located((
+                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
+            )))
+            price = re.sub(r"[^\d]", "", price_span.text) or "1111"
+        except:
+            price = "1111"
 
-            driver.get(url)
-            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-            print(f"[INFO] Обрабатываем проект: {url}")
+        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        amount_input.clear()
+        amount_input.send_keys(price)
 
-            load_cookies(driver, url)
-            driver.refresh()
-            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-            print("[INFO] Cookies загружены и страница обновлена")
+        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        days_input.clear()
+        days_input.send_keys("3")
 
-            authorize_manual(driver)
+        insert_comment(wait)
 
-            bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-            click_element_safe(driver, bid_btn)
-            print("[INFO] Кнопка 'Сделать ставку' нажата (открытие формы)")
+        # Финальный шаг — нажатие кнопки "Добавить"
+        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        click_element_safe(driver, add_btn)
+        print("[INFO] Ставка успешно отправлена!")
 
-            try:
-                price_span = wait.until(EC.presence_of_element_located((
-                    By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-                )))
-                price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-            except:
-                price = "1111"
-
-            amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
-            amount_input.clear()
-            amount_input.send_keys(price)
-
-            days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
-            days_input.clear()
-            days_input.send_keys("3")
-
-            insert_comment(wait)
-
-            add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
-            click_element_safe(driver, add_btn)
-            print("[INFO] Ставка успешно отправлена!")
-
-            driver.quit()
-
-            # Остановка скрипта и перезапуск через 3 секунды
-            print("[INFO] Остановка скрипта. Перезапуск через 3 секунды...")
-            time.sleep(3)
-            subprocess.Popen([sys.executable] + sys.argv)
-            sys.exit(0)
-
-        except (TimeoutException, WebDriverException) as e:
-            print(f"[ERROR] Ошибка при обработке проекта: {e}. Пробуем снова через 5 секунд...")
-            try:
-                driver.quit()
-            except:
-                pass
-            time.sleep(5)
-        except Exception as e:
-            print(f"[ERROR] Неизвестная ошибка: {e}. Пробуем снова через 5 секунд...")
-            try:
-                driver.quit()
-            except:
-                pass
-            time.sleep(5)
+    except TimeoutException as e:
+        print(f"[ERROR] Ошибка при сделке ставки: {e}")
+        print("[INFO] Пробуем заново через 3 секунды...")
+        time.sleep(3)
+        make_bid(url)  # повторяем попытку на тот же проект
+    finally:
+        driver.quit()
 
 def process_project(url):
     threading.Thread(target=make_bid, args=(url,), daemon=True).start()
