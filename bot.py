@@ -46,7 +46,7 @@ COMMENT_TEXT = """Доброго дня!
 """
 
 # ---------------- Функции ----------------
-def type_slow(element, text, delay=0.16):
+def type_slow(element, text, delay=0.02):
     """Печать текста с задержкой по символам"""
     for ch in text:
         element.send_keys(ch)
@@ -83,7 +83,7 @@ def authorize_manual(driver):
     return False
 
 def make_bid(driver, wait):
-    """Делаем ставку с проверкой комментария"""
+    """Делаем ставку с проверкой комментария до полного соответствия шаблону"""
     try:
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         try:
@@ -110,17 +110,15 @@ def make_bid(driver, wait):
         days_input.clear()
         type_slow(days_input, "3")
 
-        # Ввод комментария с проверкой
+        # Ввод комментария с проверкой шаблона
         comment_area = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
-        comment_area.clear()
-        type_slow(comment_area, COMMENT_TEXT)
-
-        # Проверяем совпадение с шаблоном
-        entered_text = comment_area.get_attribute("value")
-        if entered_text.strip() != COMMENT_TEXT.strip():
+        while True:
             comment_area.clear()
-            print("[WARN] Текст комментария отличается, корректируем...")
             type_slow(comment_area, COMMENT_TEXT)
+            entered_text = comment_area.get_attribute("value")
+            if entered_text.strip() == COMMENT_TEXT.strip():
+                break
+            print("[WARN] Текст комментария не совпадает с шаблоном, переписываем...")
 
         # Кнопка 'Добавить'
         add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
