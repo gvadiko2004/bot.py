@@ -18,7 +18,7 @@ from telethon import TelegramClient, events
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
-ALERT_CHAT_ID = 1168962519  # твой Telegram ID для уведомлений
+ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 
 # Клиент для уведомлений
 alert_client = TelegramClient('alert_session', api_id, api_hash)
@@ -54,44 +54,21 @@ def save_cookies(driver):
         pickle.dump(driver.get_cookies(), f)
     print("[INFO] Cookies сохранены.")
 
-def load_cookies(driver, url):
-    if os.path.exists(COOKIES_FILE):
-        with open(COOKIES_FILE, "rb") as f:
-            cookies = pickle.load(f)
-        driver.get(url)
-        for cookie in cookies:
-            try:
-                driver.add_cookie(cookie)
-            except Exception:
-                pass
-        driver.refresh()
-        print("[INFO] Cookies загружены.")
-        return True
-    return False
-
 def login_if_needed(driver):
     if os.path.exists(COOKIES_FILE):
         print("[INFO] Cookies найдены, пропускаем авторизацию.")
         return
 
-    print("[INFO] Нет сохранённых cookies, авторизация...")
     driver.get(LOGIN_URL)
     wait = WebDriverWait(driver, 30)
-
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
-    print("[INFO] Логин и пароль введены.")
-
-    js_click_login = """
-    const loginBtn = document.querySelector('#save-0');
-    if (loginBtn) { loginBtn.click(); }
-    """
+    js_click_login = "const btn=document.querySelector('#save-0');if(btn){btn.click();}"
     driver.execute_script(js_click_login)
     time.sleep(5)
     save_cookies(driver)
 
-# ---------------- Отправка уведомлений ----------------
 async def send_alert(message: str):
     try:
         entity = await alert_client.get_input_entity(ALERT_CHAT_ID)
@@ -99,7 +76,6 @@ async def send_alert(message: str):
     except Exception as e:
         print(f"[ERROR] Не удалось отправить уведомление: {e}")
 
-# ---------------- Функция ставок ----------------
 async def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
@@ -114,7 +90,6 @@ async def make_bid(url):
 
     try:
         login_if_needed(driver)
-
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
@@ -136,7 +111,6 @@ async def make_bid(url):
                 return
 
         time.sleep(1)
-
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -147,27 +121,21 @@ async def make_bid(url):
 
         driver.find_element(By.ID, "amount-0").send_keys(price)
         driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
-        driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
-        print(f"[INFO] Поля формы заполнены. Сумма: {price}")
-
+        driver.execute_script(f"document.getElementById('comment-0').value = `{COMMENT_TEXT}`;")
         js_click_code = """
         const addButton = document.querySelector('#add-0');
         if (addButton) {
             const rect = addButton.getBoundingClientRect();
-            const x = rect.left + rect.width/2;
-            const y = rect.top + rect.height/2;
-            const evt = new MouseEvent('click', {bubbles:true, clientX:x, clientY:y});
+            const evt = new MouseEvent('click',{bubbles:true, clientX:rect.left+rect.width/2, clientY:rect.top+rect.height/2});
             addButton.dispatchEvent(evt);
         }
         """
         driver.execute_script(js_click_code)
         print("[SUCCESS] Ставка отправлена через JS")
         await send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
-
     except Exception as e:
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
         await send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
-
     print("[INFO] Браузер оставлен открытым для проверки.")
 
 # ---------------- Телеграм ----------------
@@ -177,7 +145,6 @@ client = TelegramClient("session", api_id, api_hash)
 async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
-
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
         await make_bid(links[0])
@@ -186,8 +153,9 @@ async def handler(event):
 # ---------------- Запуск ----------------
 async def main():
     await alert_client.start()
-    print("[INFO] Бот запущен. Ожидаем новые проекты...")
-    client.start()
+    print("[INFO] Бот уведомлений запущен.")
+    await client.start()
+    print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
