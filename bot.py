@@ -38,6 +38,18 @@ COOKIES_FILE = "fh_cookies.pkl"
 LOGIN_URL = "https://freelancehunt.com/profile/login"
 LOGIN_DATA = {"login": "Vlari", "password": "Gvadiko_2004"}
 
+# ===== Настройки нового бота для уведомлений =====
+ALERT_BOT_TOKEN = "8338607025:AAH8hiO48IzQG5V8Dbv8cMofJlJ80femgYY"
+ALERT_CHAT_ID = 123456789  # Заменить на свой Telegram ID
+alert_client = TelegramClient("alert_session", api_id, api_hash)
+alert_client.start(bot_token=ALERT_BOT_TOKEN)
+
+def send_to_telegram(message: str):
+    try:
+        alert_client.send_message(ALERT_CHAT_ID, message)
+    except Exception as e:
+        print(f"[ERROR] Не удалось отправить уведомление: {e}")
+
 # ---------------- Функции ----------------
 def extract_links(text: str):
     return [link for link in re.findall(r"https?://[^\s]+", text)
@@ -47,6 +59,7 @@ def save_cookies(driver):
     with open(COOKIES_FILE, "wb") as f:
         pickle.dump(driver.get_cookies(), f)
     print("[INFO] Cookies сохранены.")
+    send_to_telegram("[INFO] Cookies сохранены.")
 
 def load_cookies(driver, url):
     if os.path.exists(COOKIES_FILE):
@@ -60,6 +73,7 @@ def load_cookies(driver, url):
                 pass
         driver.refresh()
         print("[INFO] Cookies загружены.")
+        send_to_telegram("[INFO] Cookies загружены.")
         return True
     return False
 
@@ -69,6 +83,7 @@ def login_if_needed(driver):
         return
 
     print("[INFO] Нет сохранённых cookies, авторизация...")
+    send_to_telegram("[INFO] Нет сохранённых cookies, выполняем авторизацию...")
     driver.get(LOGIN_URL)
     wait = WebDriverWait(driver, 30)
 
@@ -77,6 +92,7 @@ def login_if_needed(driver):
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
     print("[INFO] Логин и пароль введены.")
+    send_to_telegram("[INFO] Логин и пароль введены.")
 
     # JS-клик по кнопке "Войти"
     js_click_login = """
@@ -89,6 +105,16 @@ def login_if_needed(driver):
     driver.execute_script(js_click_login)
     time.sleep(5)  # ждем авторизацию
     save_cookies(driver)
+
+    # Дополнительно проверяем авторизацию по имени пользователя
+    try:
+        name_elem = driver.find_element(By.CSS_SELECTOR, "div.name")
+        user_name = name_elem.text.strip()
+        print(f"[INFO] Авторизация успешна. Имя пользователя: {user_name}")
+        send_to_telegram(f"[INFO] Авторизация успешна. Имя пользователя: {user_name}")
+    except Exception:
+        print("[WARNING] Не удалось получить имя пользователя после авторизации.")
+        send_to_telegram("[WARNING] Не удалось получить имя пользователя после авторизации.")
 
 def make_bid(url):
     chrome_options = Options()
@@ -108,6 +134,7 @@ def make_bid(url):
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
+        send_to_telegram(f"[INFO] Страница проекта загружена: {url}")
 
         # Проверяем кнопку "Сделать ставку"
         wait_short = WebDriverWait(driver, 5)
@@ -115,13 +142,16 @@ def make_bid(url):
             bid_btn = wait_short.until(EC.element_to_be_clickable((By.ID, "add-bid")))
             driver.execute_script("arguments[0].click();", bid_btn)
             print("[INFO] Нажата кнопка 'Сделать ставку'")
+            send_to_telegram("[INFO] Нажата кнопка 'Сделать ставку'")
         except TimeoutException:
             try:
                 alert_div = driver.find_element(By.CSS_SELECTOR, "div.alert.alert-info")
                 print(f"[ALERT] {alert_div.text.strip()}")
+                send_to_telegram(f"[ALERT] {alert_div.text.strip()}")
                 return
             except NoSuchElementException:
                 print("[WARNING] Нет кнопки 'Сделать ставку' и нет уведомления об ограничении.")
+                send_to_telegram("[WARNING] Нет кнопки 'Сделать ставку' и нет уведомления об ограничении.")
                 return
 
         time.sleep(1)
@@ -139,6 +169,7 @@ def make_bid(url):
         driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
         print(f"[INFO] Поля формы заполнены. Сумма: {price}")
+        send_to_telegram(f"[INFO] Поля формы заполнены. Сумма: {price}")
 
         # JS-клик по кнопке "Добавить"
         js_click_code = """
@@ -154,11 +185,14 @@ def make_bid(url):
         """
         driver.execute_script(js_click_code)
         print("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
+        send_to_telegram("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
 
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
+        send_to_telegram(f"[ERROR] Ошибка при отправке заявки: {e}")
 
     print("[INFO] Браузер оставлен открытым для проверки.")
+    send_to_telegram("[INFO] Браузер оставлен открытым для проверки.")
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -170,11 +204,14 @@ async def handler(event):
 
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
+        send_to_telegram(f"[INFO] Подходит ссылка: {links[0]}")
         make_bid(links[0])
         print("[INFO] Готов к следующему проекту")
+        send_to_telegram("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
+    send_to_telegram("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
     client.run_until_disconnected()
