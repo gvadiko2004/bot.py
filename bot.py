@@ -1,7 +1,6 @@
 import os
 import pickle
 import re
-import threading
 import time
 import sys
 from selenium import webdriver
@@ -53,13 +52,13 @@ def load_cookies(driver, url):
             try:
                 driver.add_cookie(cookie)
             except:
-                pass
+                continue
         driver.refresh()
         return True
     return False
 
 def clear_browser_cache(driver):
-    """Полная очистка кук и локального хранилища перед новой ставкой"""
+    """Очистка кук и локального хранилища"""
     driver.delete_all_cookies()
     driver.execute_script("window.localStorage.clear();")
     driver.execute_script("window.sessionStorage.clear();")
@@ -78,14 +77,34 @@ def authorize_manual(driver, wait):
     print("[WARN] Авторизация не выполнена, продолжаем")
     return False
 
+def click_submit(driver, wait, max_attempts=5):
+    """Надёжное нажатие на кнопку 'Добавить'"""
+    for attempt in range(max_attempts):
+        try:
+            submit_btn = wait.until(EC.presence_of_element_located((By.ID, "btn-submit-0")))
+            wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
+
+            driver.execute_script("""
+                var evt = new MouseEvent('click', {bubbles:true,cancelable:true,view:window});
+                arguments[0].dispatchEvent(evt);
+            """, submit_btn)
+
+            print(f"[SUCCESS] Ставка отправлена! (попытка {attempt+1})")
+            return True
+        except Exception as e:
+            print(f"[WARN] Попытка {attempt+1} не удалась: {e}")
+            time.sleep(1)
+    print("[ERROR] Не удалось отправить ставку после нескольких попыток")
+    return False
+
 def make_bid(url):
-    """Функция делает ставку с очисткой кеша после каждой операции"""
+    """Основная функция обработки проекта"""
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
     chrome_options.add_argument("--start-maximized")
-    chrome_options.add_argument("--window-position=-10000,-10000")  # свернуто за экраном
+    chrome_options.add_argument("--window-position=-10000,-10000")  # свернутое окно
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -98,7 +117,6 @@ def make_bid(url):
         load_cookies(driver, url)
         authorize_manual(driver, wait)
 
-        # Нажатие кнопки "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
@@ -116,34 +134,28 @@ def make_bid(url):
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # Вставка комментария
         comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        # Клик "Добавить" для отправки ставки
-        submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
-        driver.execute_script("arguments[0].click();", submit_btn)
-        print("[SUCCESS] Ставка отправлена!")
+        click_submit(driver, wait)
 
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
     finally:
-        # Очистка кеша перед закрытием
         clear_browser_cache(driver)
         driver.quit()
         print("[INFO] Браузер закрыт после завершения ставки.")
 
 def process_project(url):
-    """Запуск ставки и перезапуск скрипта после завершения"""
+    """Обработка проекта и перезапуск скрипта"""
     make_bid(url)
-    print("[INFO] Перезапуск скрипта для обработки следующих проектов...")
+    print("[INFO] Перезапуск скрипта для следующих проектов...")
     python = sys.executable
     os.execl(python, python, *sys.argv)
 
