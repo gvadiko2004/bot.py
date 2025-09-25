@@ -21,7 +21,7 @@ from telethon.errors.rpcerrorlist import PeerIdInvalidError
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
-ALERT_CHAT_ID = "YOUR_CHAT_ID"  # вставь сюда свой Telegram ID
+ALERT_CHAT_ID = 1168962519    # вставь сюда свой Telegram ID
 
 # Клиент для уведомлений
 alert_client = TelegramClient('alert_session', api_id, api_hash)
