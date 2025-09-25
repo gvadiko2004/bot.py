@@ -1,8 +1,8 @@
 import os
 import pickle
 import re
-import sys
 import time
+import sys
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -10,7 +10,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
@@ -40,47 +39,16 @@ COOKIES_FILE = "fh_cookies.pkl"
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def save_cookies(driver):
-    with open(COOKIES_FILE, "wb") as f:
-        pickle.dump(driver.get_cookies(), f)
-
-def load_cookies(driver, url):
-    if os.path.exists(COOKIES_FILE):
-        with open(COOKIES_FILE, "rb") as f:
-            cookies = pickle.load(f)
-        driver.get(url)
-        for cookie in cookies:
-            try:
-                driver.add_cookie(cookie)
-            except:
-                pass
-        driver.refresh()
-        return True
-    return False
-
-def authorize_manual(driver, wait):
-    print("[INFO] Если требуется авторизация, войдите вручную в браузере.")
-    for _ in range(60):
-        try:
-            if driver.find_element(By.ID, "add-0").is_displayed():
-                print("[INFO] Авторизация завершена")
-                save_cookies(driver)
-                return True
-        except:
-            time.sleep(1)
-    print("[WARN] Авторизация не выполнена, продолжаем")
-    return False
-
 def make_bid(url):
-    chrome_options = Options()
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument("--start-minimized")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-gpu")
+    options = Options()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument(f"--user-data-dir={PROFILE_PATH}")
+    options.add_argument("--start-maximized")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-gpu")
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     wait = WebDriverWait(driver, 30)
 
     try:
@@ -88,50 +56,43 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        load_cookies(driver, url)
-        authorize_manual(driver, wait)
+        # Ждём появления формы
+        wait.until(EC.presence_of_element_located((By.ID, "amount-0")))
+        wait.until(EC.presence_of_element_located((By.ID, "days_to_deliver-0")))
+        wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
 
-        # === Первый клик по кнопке "Добавить" ===
-        first_add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
-        first_add_btn.click()
-        print("[INFO] Первый клик 'Добавить' выполнен")
-
-        time.sleep(1)  # дать JS прогрузиться
-
-        # === Заполняем поля ===
+        # Ввод суммы
         try:
-            price_span = wait.until(EC.presence_of_element_located((
-                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-            )))
+            price_span = driver.find_element(By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs")
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except:
             price = "1111"
 
-        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        amount_input = driver.find_element(By.ID, "amount-0")
         amount_input.clear()
         amount_input.send_keys(price)
-        print(f"[INFO] Введена сумма: {price}")
 
-        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        days_input = driver.find_element(By.ID, "days_to_deliver-0")
         days_input.clear()
         days_input.send_keys("3")
-        print("[INFO] Введены дни: 3")
 
-        comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+        comment_area = driver.find_element(By.ID, "comment-0")
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        time.sleep(1)  # дать JS обработать изменения
+        # Имитация TAB x6 + ENTER
+        actions = webdriver.ActionChains(driver)
+        for i in range(6):
+            actions.send_keys(Keys.TAB)
+            print(f"[INFO] TAB нажата {i+1} раз")
+            time.sleep(0.2)  # небольшая задержка
+        actions.send_keys(Keys.ENTER)
+        actions.perform()
+        print("[SUCCESS] Нажат ENTER для отправки ставки!")
 
-        # === Второй клик по кнопке "Добавить" для отправки ===
-        second_add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
-        driver.execute_script("arguments[0].click();", second_add_btn)
-        print("[SUCCESS] Второй клик выполнен. Заявка отправлена!")
+        print("[INFO] Браузер оставлен открытым для проверки.")
 
-        # === Логирование успешного завершения ===
-        print("[INFO] Все шаги успешно завершены. Браузер оставлен открытым для проверки.")
-
-    except (TimeoutException, NoSuchElementException) as e:
+    except Exception as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
     # НЕ закрываем браузер
@@ -140,6 +101,7 @@ def make_bid(url):
 def process_project(url):
     make_bid(url)
     print("[INFO] Готов к следующему проекту")
+    # Скрипт можно оставить запущенным без перезапуска
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
