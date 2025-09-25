@@ -4,7 +4,6 @@ import re
 import threading
 import time
 import sys
-import subprocess
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -73,12 +72,13 @@ def authorize_manual(driver, wait):
     return False
 
 def make_bid(url):
-    """Функция делает ставку и закрывает браузер после завершения"""
+    """Функция делает ставку с свернутым браузером и закрывает его после"""
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
     chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--window-position=-10000,-10000")  # <- свернутый за экраном
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -131,7 +131,6 @@ def process_project(url):
     """Запуск ставки и перезапуск скрипта после завершения"""
     make_bid(url)
     print("[INFO] Перезапуск скрипта для обработки следующих проектов...")
-    # Перезапуск текущего скрипта через subprocess
     python = sys.executable
     os.execl(python, python, *sys.argv)
 
