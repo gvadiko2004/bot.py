@@ -3,15 +3,16 @@ import pickle
 import re
 import sys
 import time
+import random
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
@@ -41,10 +42,6 @@ COOKIES_FILE = "fh_cookies.pkl"
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def save_cookies(driver):
-    with open(COOKIES_FILE, "wb") as f:
-        pickle.dump(driver.get_cookies(), f)
-
 def load_cookies(driver, url):
     if os.path.exists(COOKIES_FILE):
         with open(COOKIES_FILE, "rb") as f:
@@ -59,12 +56,33 @@ def load_cookies(driver, url):
         return True
     return False
 
+def human_type(element, text, delay_range=(0.05, 0.15)):
+    """Имитируем набор текста как человек"""
+    for char in text:
+        element.send_keys(char)
+        time.sleep(random.uniform(*delay_range))
+
+def move_to_element_smoothly(driver, element, steps=20):
+    """Имитируем движение мышки к элементу"""
+    from selenium.webdriver.common.action_chains import ActionChains
+    loc = element.location_once_scrolled_into_view
+    size = element.size
+    x_target = loc['x'] + size['width'] // 2
+    y_target = loc['y'] + size['height'] // 2
+
+    action = ActionChains(driver)
+    for i in range(steps):
+        action.move_by_offset(x_target/steps, y_target/steps)
+    action.move_to_element(element)
+    action.perform()
+    time.sleep(random.uniform(0.2, 0.5))
+
 def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument("--start-minimized")
+    chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
 
@@ -76,14 +94,14 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Загружаем куки
         load_cookies(driver, url)
 
-        # Ждём кнопку "Сделать ставку"
+        # Нажимаем "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        driver.execute_script("arguments[0].click();", bid_btn)
+        move_to_element_smoothly(driver, bid_btn)
+        bid_btn.click()
         print("[INFO] Нажата кнопка 'Сделать ставку'")
-        time.sleep(1)
+        time.sleep(random.uniform(0.5, 1.0))
 
         # Ввод суммы
         try:
@@ -95,21 +113,25 @@ def make_bid(url):
             price = "1111"
 
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        move_to_element_smoothly(driver, amount_input)
         amount_input.clear()
-        amount_input.send_keys(price)
+        human_type(amount_input, price)
 
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        move_to_element_smoothly(driver, days_input)
         days_input.clear()
-        days_input.send_keys("3")
+        human_type(days_input, "3")
 
         comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-        driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
+        move_to_element_smoothly(driver, comment_area)
+        comment_area.clear()
+        human_type(comment_area, COMMENT_TEXT)
         print("[INFO] Поля формы заполнены")
 
-        # Ждём, пока кнопка add-0 станет активной
+        # Имитируем движение мышки и клик на кнопку 'Добавить'
         submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
-        time.sleep(1)  # маленькая пауза перед кликом
-        driver.execute_script("arguments[0].click();", submit_btn)
+        move_to_element_smoothly(driver, submit_btn)
+        submit_btn.click()
         print("[SUCCESS] Заявка отправлена кнопкой 'Добавить'")
 
     except (TimeoutException, NoSuchElementException) as e:
