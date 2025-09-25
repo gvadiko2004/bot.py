@@ -3,7 +3,7 @@ import pickle
 import re
 import threading
 import time
-
+import random
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -12,7 +12,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
-
 from telethon import TelegramClient, events
 
 # ===== Настройки Telegram =====
@@ -29,144 +28,123 @@ KEYWORDS = [
 ]
 KEYWORDS = [kw.lower() for kw in KEYWORDS]
 
-# ===== Настройки Freelancehunt =====
-EMAIL = "Vlari"
-PASSWORD = "Gvadiko_2004"
-COOKIES_FILE = "fh_cookies.pkl"
+COMMENT_TEXT = """Доброго дня! Готовий виконати роботу якісно.
+Портфоліо робіт у моєму профілі.
+Заздалегідь дякую!
+"""
 
-COMMENT_TEXT = """Доброго дня! 
-
-Я ознайомився із завданням і готовий приступити до якісного виконання завдання
-
-Стек: Figma / html (bem), scss, js / WordPress ACF PRO
-
-Мої роботи:
-https://telya.ch/
-https://gvadiko2004.github.io/grill/
-https://gvadiko2004.github.io/Anon-shop/
-https://iliarchie.github.io/cates/
-
-Зв'яжіться зі мною в особистих повідомленнях.
-Заздалегідь дякую"""
+PROFILE_PATH = "/home/user/chrome_profile"  # Путь к постоянному профилю Chrome
+EXTENSION_PATH = "/path/to/anticaptcha_extension"  # Путь к расширению Anti-Captcha
 
 # ---------------- Функции ----------------
-def type_slow(element, text, delay=0.16):
-    """Печать текста с задержкой по символам"""
-    for ch in text:
-        element.send_keys(ch)
-        time.sleep(delay)
-
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
 def save_cookies(driver):
-    with open(COOKIES_FILE, "wb") as f:
+    with open("fh_cookies.pkl", "wb") as f:
         pickle.dump(driver.get_cookies(), f)
 
-def load_cookies(driver):
-    if os.path.exists(COOKIES_FILE):
-        with open(COOKIES_FILE, "rb") as f:
+def load_cookies(driver, url):
+    if os.path.exists("fh_cookies.pkl"):
+        with open("fh_cookies.pkl", "rb") as f:
             cookies = pickle.load(f)
+        driver.get(url)
         for cookie in cookies:
-            driver.add_cookie(cookie)
+            try:
+                driver.add_cookie(cookie)
+            except:
+                continue
         return True
     return False
 
 def authorize_manual(driver):
-    """Если не авторизован — даем пользователю время войти вручную"""
-    print("[INFO] Если вы не авторизованы, войдите вручную в открывшемся браузере.")
-    for _ in range(120):  # Ждем до 2 минут
+    print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
+    for _ in range(120):
         try:
             driver.find_element(By.ID, "add-bid")
-            print("[INFO] Авторизация завершена, продолжаем работу")
+            print("[INFO] Авторизация завершена")
             save_cookies(driver)
             return True
         except:
             time.sleep(1)
-    print("[WARN] Авторизация не выполнена, кнопка 'Сделать ставку' не найдена")
+    print("[WARN] Авторизация не выполнена")
     return False
 
-def make_bid(driver, wait):
-    """Делаем ставку с проверкой комментария"""
-    try:
-        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        try:
-            bid_btn.click()
-        except ElementClickInterceptedException:
-            driver.execute_script("arguments[0].click();", bid_btn)
-        print("[INFO] Кнопка 'Сделать ставку' нажата")
+def insert_comment(wait):
+    comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+    comment_area.clear()
+    for ch in COMMENT_TEXT:
+        comment_area.send_keys(ch)
+        time.sleep(0.05 + random.random() * 0.05)  # реалистичная скорость печати
+    entered_text = comment_area.get_attribute("value")
+    if entered_text.strip() == COMMENT_TEXT.strip():
+        print("[INFO] Текст комментария введён корректно")
+    else:
+        print("[WARN] Текст комментария не совпадает полностью")
 
-        # Ввод цены
-        try:
-            price_span = wait.until(EC.presence_of_element_located((
-                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-            )))
-            price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-        except Exception:
-            price = "1111"
+def click_js(driver, element):
+    """Надежный клик через JS, обход конфликтов DOM"""
+    driver.execute_script("arguments[0].click();", element)
 
-        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
-        amount_input.clear()
-        type_slow(amount_input, price)
-
-        # Ввод дней
-        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
-        days_input.clear()
-        type_slow(days_input, "3")
-
-        # Ввод комментария с проверкой
-        comment_area = wait.until(EC.element_to_be_clickable((By.ID, "comment-0")))
-        comment_area.clear()
-        type_slow(comment_area, COMMENT_TEXT)
-
-        # Проверяем совпадение с шаблоном
-        entered_text = comment_area.get_attribute("value")
-        if entered_text.strip() != COMMENT_TEXT.strip():
-            comment_area.clear()
-            print("[WARN] Текст комментария отличается, корректируем...")
-            type_slow(comment_area, COMMENT_TEXT)
-
-        # Кнопка 'Добавить'
-        add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Добавить")]')))
-        add_btn.click()
-        print("[INFO] Ставка отправлена!")
-        time.sleep(2)
-    except Exception as e:
-        print(f"[ERROR] Ошибка при сделке ставки: {e}")
-
-def open_link_and_process(url):
+def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Не headless, чтобы можно было авторизоваться вручную
-    # chrome_options.add_argument("--headless")
+    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
+    chrome_options.add_argument(f"--load-extension={EXTENSION_PATH}")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
     try:
         driver.get(url)
-        # Ждём полной загрузки страницы
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print(f"[INFO] Страница {url} полностью загружена")
+        print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Загружаем cookies, если есть
-        if load_cookies(driver):
-            driver.refresh()
-            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-            print("[INFO] Cookies загружены и страница обновлена")
+        load_cookies(driver, url)
+        time.sleep(1)
+        driver.refresh()  # обновляем страницу для сброса DOM конфликтов
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print("[INFO] Страница перезагружена и кеш очищен")
 
-        # Авторизация вручную, если требуется
-        if not authorize_manual(driver):
-            print("[WARN] Продолжаем работу без авторизации, некоторые функции могут не работать")
+        authorize_manual(driver)
 
-        # Делаем ставку
-        make_bid(driver, wait)
+        # Первый клик по "Сделать ставку"
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_js(driver, bid_btn)
+        print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-    except Exception as e:
-        print(f"[ERROR] Ошибка обработки ссылки: {e}")
+        # Ввод суммы и сроков
+        try:
+            price_span = wait.until(EC.presence_of_element_located((
+                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
+            )))
+            price = re.sub(r"[^\d]", "", price_span.text) or "1111"
+        except:
+            price = "1111"
+
+        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        amount_input.clear()
+        amount_input.send_keys(price)
+
+        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        days_input.clear()
+        days_input.send_keys("3")
+
+        insert_comment(wait)
+
+        # Последний клик по кнопке "Добавить" через JS
+        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        click_js(driver, add_btn)
+        print("[INFO] Ставка успешно отправлена!")
+
+    except TimeoutException as e:
+        print(f"[ERROR] Ошибка при обработке проекта: {e}")
     finally:
         driver.quit()
+
+def process_project(url):
+    threading.Thread(target=make_bid, args=(url,), daemon=True).start()
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -178,11 +156,9 @@ async def handler(event):
         print(f"[INFO] Новый проект: {text[:100]}")
         links = extract_links(text)
         if links:
-            print(f"[INFO] Открываем: {links[0]}")
-            threading.Thread(target=open_link_and_process, args=(links[0],), daemon=True).start()
+            process_project(links[0])
 
-# ---------------- Запуск ----------------
 if __name__ == "__main__":
-    print("[INFO] Бот запущен, ждём сообщения...")
+    print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
     client.run_until_disconnected()
