@@ -56,8 +56,9 @@ def load_cookies(driver, url):
         for cookie in cookies:
             try:
                 driver.add_cookie(cookie)
-            except Exception:
-                pass
+                print(f"[INFO] Добавлена cookie: {cookie.get('name')}")
+            except Exception as e:
+                print(f"[WARNING] Не удалось добавить cookie: {e}")
         driver.refresh()
         print("[INFO] Cookies загружены.")
         return True
@@ -76,7 +77,7 @@ def login_if_needed(driver):
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
-    print("[INFO] Логин и пароль введены.")
+    print(f"[INFO] Логин '{LOGIN_DATA['login']}' и пароль введены.")
 
     # JS-клик по кнопке "Войти"
     js_click_login = """
@@ -87,7 +88,8 @@ def login_if_needed(driver):
     }
     """
     driver.execute_script(js_click_login)
-    time.sleep(5)  # ждем авторизацию
+    print("[INFO] Кнопка 'Войти' нажата через JS, ждём авторизацию...")
+    time.sleep(5)  # ждём авторизацию
     save_cookies(driver)
 
 def make_bid(url):
@@ -121,7 +123,7 @@ def make_bid(url):
                 print(f"[ALERT] {alert_div.text.strip()}")
                 return
             except NoSuchElementException:
-                print("[WARNING] Нет кнопки 'Сделать ставку' и нет уведомления об ограничении.")
+                print("[WARNING] Нет кнопки 'Сделать ставку' и уведомлений.")
                 return
 
         time.sleep(1)
@@ -132,13 +134,15 @@ def make_bid(url):
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
             )))
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
+            print(f"[INFO] Найдена сумма проекта: {price}")
         except Exception:
             price = "1111"
+            print("[WARNING] Не удалось получить сумму проекта, ставим 1111")
 
         driver.find_element(By.ID, "amount-0").send_keys(price)
         driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
-        print(f"[INFO] Поля формы заполнены. Сумма: {price}")
+        print(f"[INFO] Поля формы заполнены. Сумма: {price}, комментарий добавлен.")
 
         # JS-клик по кнопке "Добавить"
         js_click_code = """
@@ -171,7 +175,7 @@ async def handler(event):
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
         make_bid(links[0])
-        print("[INFO] Готов к следующему проекту")
+        print("[INFO] Готов к следующему проекту\n" + "-"*50)
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
