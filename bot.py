@@ -4,7 +4,6 @@ import re
 import threading
 import time
 import random
-
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -13,7 +12,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
-
 from telethon import TelegramClient, events
 
 # ===== Настройки Telegram =====
@@ -34,6 +32,9 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Портфоліо робіт у моєму профілі.
 Заздалегідь дякую!
 """
+
+PROFILE_PATH = "/home/user/chrome_profile"  # Путь к постоянному профилю Chrome
+EXTENSION_PATH = "/path/to/anticaptcha_extension"  # Путь к расширению Anti-Captcha
 
 # ---------------- Функции ----------------
 def extract_links(text):
@@ -74,32 +75,23 @@ def insert_comment(wait):
     comment_area.clear()
     for ch in COMMENT_TEXT:
         comment_area.send_keys(ch)
-        time.sleep(0.05)  # ускоренная печать
+        time.sleep(0.05 + random.random() * 0.05)  # реалистичная скорость печати
     entered_text = comment_area.get_attribute("value")
     if entered_text.strip() == COMMENT_TEXT.strip():
-        print("[INFO] Текст комментария введён по символам")
+        print("[INFO] Текст комментария введён корректно")
     else:
         print("[WARN] Текст комментария не совпадает полностью")
 
-def click_element_safe(driver, element, retries=3, delay=0.5):
-    for _ in range(retries):
-        try:
-            element.click()
-            return True
-        except ElementClickInterceptedException:
-            driver.execute_script("arguments[0].click();", element)
-            return True
-        except:
-            time.sleep(delay)
-    return False
+def click_js(driver, element):
+    """Надежный клик через JS, обход конфликтов DOM"""
+    driver.execute_script("arguments[0].click();", element)
 
 def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    profile_path = "/home/user/chrome_profile"  # <-- замените на ваш путь
-    chrome_options.add_argument(f"--user-data-dir={profile_path}")
-    chrome_options.add_argument("--load-extension=/path/to/anticaptcha_extension")
+    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
+    chrome_options.add_argument(f"--load-extension={EXTENSION_PATH}")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -109,20 +101,20 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Очистка локального хранилища и cookies
-        driver.execute_script("window.localStorage.clear(); window.sessionStorage.clear();")
-        driver.delete_all_cookies()
-        driver.refresh()
+        load_cookies(driver, url)
+        time.sleep(1)
+        driver.refresh()  # обновляем страницу для сброса DOM конфликтов
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print("[INFO] Страница перезагружена и кеш очищен")
 
-        # 1. Клик на ссылку "Сделать ставку"
-        bid_link = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        click_element_safe(driver, bid_link)
-        driver.execute_script("arguments[0].blur();", bid_link)  # снимаем фокус/выделение
-        print("[INFO] Форма открыта")
+        authorize_manual(driver)
 
-        # 2. Заполняем форму
+        # Первый клик по "Сделать ставку"
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        click_js(driver, bid_btn)
+        print("[INFO] Кнопка 'Сделать ставку' нажата")
+
+        # Ввод суммы и сроков
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -141,16 +133,13 @@ def make_bid(url):
 
         insert_comment(wait)
 
-        # 3. Клик на кнопку "Добавить" как на первом клике
-        add_btn = wait.until(EC.presence_of_element_located((By.ID, "add-0")))
-        driver.execute_script("""
-            const evt = new MouseEvent('click', {bubbles:true, cancelable:true, view:window});
-            arguments[0].dispatchEvent(evt);
-        """, add_btn)
+        # Последний клик по кнопке "Добавить" через JS
+        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        click_js(driver, add_btn)
         print("[INFO] Ставка успешно отправлена!")
 
     except TimeoutException as e:
-        print(f"[ERROR] Ошибка при сделке ставки: {e}")
+        print(f"[ERROR] Ошибка при обработке проекта: {e}")
     finally:
         driver.quit()
 
