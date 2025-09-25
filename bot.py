@@ -99,10 +99,10 @@ def make_bid(url):
 
         authorize_manual(driver)
 
-        # Клик "Сделать ставку"
+        # Первый клик "Сделать ставку" чтобы открыть форму
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         click_js(driver, bid_btn)
-        print("[INFO] Кнопка 'Сделать ставку' нажата")
+        print("[INFO] Первый клик 'Сделать ставку' выполнен")
 
         # Ввод суммы и дней
         try:
@@ -124,12 +124,9 @@ def make_bid(url):
         # Вставка комментария через JS
         insert_comment(driver, wait)
 
-        # Клик "Добавить" через JS, дублируем клик для надёжности
-        add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
-        click_js(driver, add_btn)
-        time.sleep(0.5)
-        click_js(driver, add_btn)
-        print("[INFO] Ставка успешно отправлена!")
+        # Второй клик "Сделать ставку" чтобы подтвердить
+        click_js(driver, bid_btn)
+        print("[INFO] Второй клик 'Сделать ставку' выполнен. Ставка отправлена!")
 
     except TimeoutException as e:
         print(f"[ERROR] Ошибка при обработке проекта: {e}")
