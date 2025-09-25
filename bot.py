@@ -114,6 +114,18 @@ def click_submit_all_methods(driver, wait):
             return
         except:
             pass
+
+        # 5. TAB x6 + ENTER
+        try:
+            actions = webdriver.ActionChains(driver)
+            for _ in range(6):
+                actions.send_keys(Keys.TAB)
+            actions.send_keys(Keys.ENTER)
+            actions.perform()
+            print("[INFO] Попытка TAB x6 + ENTER выполнена")
+            return
+        except Exception as e:
+            print(f"[ERROR] TAB+ENTER не сработал: {e}")
         
         print("[ERROR] Не удалось нажать кнопку 'Добавить'")
     except TimeoutException:
