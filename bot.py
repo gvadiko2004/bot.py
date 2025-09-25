@@ -33,10 +33,8 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
+PROFILE_PATH = "/home/user/chrome_profile"
 COOKIES_FILE = "fh_cookies.pkl"
-
-# Для первого запуска на ПК поставь True, для VPS False
-FIRST_RUN = False
 
 # ---------------- Функции ----------------
 def extract_links(text: str):
@@ -64,15 +62,10 @@ def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
+    chrome_options.add_argument("--start-minimized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
-
-    if FIRST_RUN:
-        chrome_options.add_argument(f"--user-data-dir={os.path.expanduser('~/chrome_profile_first_run')}")
-        # Chrome не headless для авторизации
-    else:
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_profile_vps")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -82,14 +75,7 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        if FIRST_RUN:
-            input("[INFO] Авторизуйтесь на сайте, затем нажмите Enter для сохранения куки...")
-            save_cookies(driver)
-            print("[INFO] Куки сохранены, можно переносить на VPS")
-            driver.quit()
-            return
-
-        # Загружаем куки на VPS
+        # Загружаем куки
         load_cookies(driver, url)
         time.sleep(1)
 
