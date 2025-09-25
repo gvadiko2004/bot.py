@@ -56,30 +56,34 @@ def load_cookies(driver, url):
         for cookie in cookies:
             try:
                 driver.add_cookie(cookie)
-                print(f"[INFO] Добавлена cookie: {cookie.get('name')}")
-            except Exception as e:
-                print(f"[WARNING] Не удалось добавить cookie: {e}")
+            except Exception:
+                pass
         driver.refresh()
         print("[INFO] Cookies загружены.")
         return True
     return False
 
 def login_if_needed(driver):
+    driver.get("https://freelancehunt.com/dashboard")
     if os.path.exists(COOKIES_FILE):
-        print("[INFO] Cookies найдены, пропускаем авторизацию.")
+        load_cookies(driver, "https://freelancehunt.com/dashboard")
+        try:
+            wait = WebDriverWait(driver, 10)
+            name_div = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.name")))
+            print(f"[INFO] Авторизация подтверждена через cookies. Имя пользователя: '{name_div.text.strip()}'")
+        except TimeoutException:
+            print("[WARNING] Cookies устарели, будет новая авторизация.")
         return
 
     print("[INFO] Нет сохранённых cookies, авторизация...")
     driver.get(LOGIN_URL)
     wait = WebDriverWait(driver, 30)
-
-    # Ждем поля логина
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
+
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
     print(f"[INFO] Логин '{LOGIN_DATA['login']}' и пароль введены.")
 
-    # JS-клик по кнопке "Войти"
     js_click_login = """
     const loginBtn = document.querySelector('#save-0');
     if (loginBtn) {
@@ -89,8 +93,16 @@ def login_if_needed(driver):
     """
     driver.execute_script(js_click_login)
     print("[INFO] Кнопка 'Войти' нажата через JS, ждём авторизацию...")
-    time.sleep(5)  # ждём авторизацию
+    time.sleep(5)
     save_cookies(driver)
+
+    # Проверяем имя после авторизации
+    try:
+        wait = WebDriverWait(driver, 10)
+        name_div = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.name")))
+        print(f"[INFO] Авторизация успешна. Имя пользователя: '{name_div.text.strip()}'")
+    except TimeoutException:
+        print("[ERROR] Не удалось получить имя пользователя после авторизации!")
 
 def make_bid(url):
     chrome_options = Options()
@@ -123,7 +135,7 @@ def make_bid(url):
                 print(f"[ALERT] {alert_div.text.strip()}")
                 return
             except NoSuchElementException:
-                print("[WARNING] Нет кнопки 'Сделать ставку' и уведомлений.")
+                print("[WARNING] Нет кнопки 'Сделать ставку' и уведомления.")
                 return
 
         time.sleep(1)
@@ -134,17 +146,14 @@ def make_bid(url):
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
             )))
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-            print(f"[INFO] Найдена сумма проекта: {price}")
         except Exception:
             price = "1111"
-            print("[WARNING] Не удалось получить сумму проекта, ставим 1111")
 
         driver.find_element(By.ID, "amount-0").send_keys(price)
         driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
-        print(f"[INFO] Поля формы заполнены. Сумма: {price}, комментарий добавлен.")
+        print(f"[INFO] Поля формы заполнены. Сумма: {price}")
 
-        # JS-клик по кнопке "Добавить"
         js_click_code = """
         const addButton = document.querySelector('#add-0');
         if (addButton) {
@@ -175,7 +184,7 @@ async def handler(event):
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
         make_bid(links[0])
-        print("[INFO] Готов к следующему проекту\n" + "-"*50)
+        print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
