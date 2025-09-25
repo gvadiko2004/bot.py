@@ -2,7 +2,6 @@ import os
 import pickle
 import re
 import time
-import tempfile
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -62,13 +61,11 @@ def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(f"--user-data-dir=/tmp/chrome_profile_{int(time.time())}")
     chrome_options.add_argument("--start-minimized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
-    
-    # Уникальный временный профиль для VPS
-    unique_profile = tempfile.mkdtemp()
-    chrome_options.add_argument(f"--user-data-dir={unique_profile}")
+    chrome_options.add_argument("--headless=new")  # Headless для VPS
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -78,17 +75,14 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Загружаем куки
         load_cookies(driver, url)
         time.sleep(1)
 
-        # Нажимаем "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Нажата кнопка 'Сделать ставку'")
         time.sleep(1)
 
-        # Ввод суммы
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -102,7 +96,6 @@ def make_bid(url):
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
         print("[INFO] Поля формы заполнены")
 
-        # JS-клик по кнопке "Добавить"
         js_click_code = """
         const addButton = document.querySelector('#add-0');
         if (addButton) {
@@ -120,7 +113,8 @@ def make_bid(url):
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
-    print("[INFO] Браузер оставлен открытым для проверки.")
+    print("[INFO] Браузер закрыт.")
+    driver.quit()
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -130,7 +124,6 @@ async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
 
-    # Проверяем inline-кнопки, если нет ссылок в тексте
     if not links and event.message.reply_markup:
         for row in event.message.reply_markup.rows:
             for button in row.buttons:
