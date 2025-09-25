@@ -3,13 +3,12 @@ import pickle
 import re
 import threading
 import time
-import random
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
@@ -34,7 +33,6 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 """
 
 PROFILE_PATH = "/home/user/chrome_profile"  # Путь к постоянному профилю Chrome
-EXTENSION_PATH = "/path/to/anticaptcha_extension"  # Путь к расширению Anti-Captcha
 
 # ---------------- Функции ----------------
 def extract_links(text):
@@ -59,7 +57,7 @@ def load_cookies(driver, url):
 
 def authorize_manual(driver):
     print("[INFO] Если требуется авторизация, войдите вручную в открывшемся браузере.")
-    for _ in range(120):
+    for _ in range(60):
         try:
             driver.find_element(By.ID, "add-bid")
             print("[INFO] Авторизация завершена")
@@ -67,23 +65,17 @@ def authorize_manual(driver):
             return True
         except:
             time.sleep(1)
-    print("[WARN] Авторизация не выполнена")
+    print("[WARN] Авторизация не выполнена, продолжаем")
     return False
 
-def insert_comment(wait):
+def insert_comment(driver, wait):
+    """Вставка комментария через JS (копипастом)"""
     comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-    comment_area.clear()
-    for ch in COMMENT_TEXT:
-        comment_area.send_keys(ch)
-        time.sleep(0.05 + random.random() * 0.05)  # реалистичная скорость печати
-    entered_text = comment_area.get_attribute("value")
-    if entered_text.strip() == COMMENT_TEXT.strip():
-        print("[INFO] Текст комментария введён корректно")
-    else:
-        print("[WARN] Текст комментария не совпадает полностью")
+    driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
+    print("[INFO] Текст комментария вставлен через JS")
 
 def click_js(driver, element):
-    """Надежный клик через JS, обход конфликтов DOM"""
+    """Надёжный клик через JS"""
     driver.execute_script("arguments[0].click();", element)
 
 def make_bid(url):
@@ -91,7 +83,6 @@ def make_bid(url):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument(f"--load-extension={EXTENSION_PATH}")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -101,20 +92,19 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        load_cookies(driver, url)
-        time.sleep(1)
-        driver.refresh()  # обновляем страницу для сброса DOM конфликтов
-        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-        print("[INFO] Страница перезагружена и кеш очищен")
+        if load_cookies(driver, url):
+            driver.refresh()
+            wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+            print("[INFO] Cookies загружены и страница обновлена")
 
         authorize_manual(driver)
 
-        # Первый клик по "Сделать ставку"
+        # Клик "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         click_js(driver, bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-        # Ввод суммы и сроков
+        # Ввод суммы и дней
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -131,10 +121,13 @@ def make_bid(url):
         days_input.clear()
         days_input.send_keys("3")
 
-        insert_comment(wait)
+        # Вставка комментария через JS
+        insert_comment(driver, wait)
 
-        # Последний клик по кнопке "Добавить" через JS
+        # Клик "Добавить" через JS, дублируем клик для надёжности
         add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        click_js(driver, add_btn)
+        time.sleep(0.5)
         click_js(driver, add_btn)
         print("[INFO] Ставка успешно отправлена!")
 
@@ -158,6 +151,7 @@ async def handler(event):
         if links:
             process_project(links[0])
 
+# ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
