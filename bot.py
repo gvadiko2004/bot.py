@@ -6,14 +6,11 @@ import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from telethon import TelegramClient, events
-import random
 
 # ===== Настройки Telegram =====
 api_id = 21882740
@@ -59,12 +56,6 @@ def load_cookies(driver, url):
         return True
     return False
 
-def human_type(element, text, delay_range=(0.05, 0.15)):
-    """Имитируем ввод текста по символам с небольшой задержкой"""
-    for char in text:
-        element.send_keys(char)
-        time.sleep(random.uniform(*delay_range))
-
 def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
@@ -74,9 +65,8 @@ def make_bid(url):
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver = webdriver.Chrome(service=Service(webdriver.ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
-    actions = ActionChains(driver)
 
     try:
         driver.get(url)
@@ -85,10 +75,11 @@ def make_bid(url):
 
         # Загружаем куки
         load_cookies(driver, url)
+        time.sleep(1)
 
         # Нажимаем "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        actions.move_to_element(bid_btn).click().perform()
+        driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Нажата кнопка 'Сделать ставку'")
         time.sleep(1)
 
@@ -101,48 +92,27 @@ def make_bid(url):
         except:
             price = "1111"
 
-        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
-        actions.move_to_element(amount_input).click().perform()
-        human_type(amount_input, price)
-        time.sleep(0.3)
-
-        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
-        actions.move_to_element(days_input).click().perform()
-        human_type(days_input, "3")
-        time.sleep(0.3)
-
-        comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
-        actions.move_to_element(comment_area).click().perform()
-        human_type(comment_area, COMMENT_TEXT)
+        driver.find_element(By.ID, "amount-0").send_keys(price)
+        driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
+        driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
         print("[INFO] Поля формы заполнены")
 
-        # JS для гарантированного нажатия кнопки "Добавить"
-        js_code = """
-        (function() {
-            const comment = document.querySelector('#comment-0');
-            const days = document.querySelector('#days_to_deliver-0');
-            const amount = document.querySelector('#amount-0');
-
-            if (!comment.value.trim() || !days.value || !amount.value) {
-                console.log('Поля не заполнены!');
-                return;
-            }
-
-            const addButton = document.querySelector('#add-0');
-            if (addButton) {
-                addButton.scrollIntoView({behavior: 'smooth', block: 'center'});
-                addButton.click();
-                console.log('Кнопка "Добавить" натиснута через JS');
-            } else {
-                console.error('Кнопка не знайдена!');
-            }
-        })();
+        # JS-клик по кнопке "Добавить", имитация действий пользователя
+        js_click_code = """
+        const addButton = document.querySelector('#add-0');
+        if (addButton) {
+            const rect = addButton.getBoundingClientRect();
+            const x = rect.left + rect.width/2;
+            const y = rect.top + rect.height/2;
+            const evt = new MouseEvent('click', {bubbles:true, clientX:x, clientY:y});
+            addButton.dispatchEvent(evt);
+            console.log('Кнопка "Добавить" нажата через JS');
+        }
         """
-        time.sleep(0.5)  # маленькая пауза перед JS
-        driver.execute_script(js_code)
-        print("[SUCCESS] Заявка отправлена кнопкой 'Добавить'")
+        driver.execute_script(js_click_code)
+        print("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
 
-    except Exception as e:
+    except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
     print("[INFO] Браузер оставлен открытым для проверки.")
@@ -153,13 +123,19 @@ client = TelegramClient("session", api_id, api_hash)
 @client.on(events.NewMessage)
 async def handler(event):
     text = (event.message.text or "").lower()
-    if any(k in text for k in KEYWORDS):
-        print(f"[INFO] Найдено сообщение по ключу: {text[:100]}")
-        links = extract_links(text)
-        if links:
-            print(f"[INFO] Подходит ссылка: {links[0]}")
-            make_bid(links[0])
-            print("[INFO] Готов к следующему проекту")
+    links = extract_links(text)
+
+    # Если ссылки в тексте нет, проверяем inline-кнопки
+    if not links and event.message.reply_markup:
+        for row in event.message.reply_markup.rows:
+            for button in row.buttons:
+                if hasattr(button, 'url') and button.url:
+                    links.append(button.url)
+
+    if any(k in text for k in KEYWORDS) and links:
+        print(f"[INFO] Подходит ссылка: {links[0]}")
+        make_bid(links[0])
+        print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
