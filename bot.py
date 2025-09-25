@@ -13,13 +13,15 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, sync
+from telethon.tl.types import InputPeerUser
+from telethon.errors.rpcerrorlist import PeerIdInvalidError
 
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
-ALERT_BOT_TOKEN = "8338607025:AAH8hiO48IzQG5V8Dbv8cMofJlJ80femgYY"
-ALERT_CHAT_ID = "YOUR_CHAT_ID"  # сюда вставь свой Telegram ID для уведомлений
+ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
+ALERT_CHAT_ID = "YOUR_CHAT_ID"  # вставь сюда свой Telegram ID
 
 # Клиент для уведомлений
 alert_client = TelegramClient('alert_session', api_id, api_hash)
@@ -96,6 +98,8 @@ def login_if_needed(driver):
 async def send_alert(message: str):
     try:
         await alert_client.send_message(ALERT_CHAT_ID, message)
+    except PeerIdInvalidError:
+        print("[ERROR] Неверный ALERT_CHAT_ID, укажи свой Telegram ID.")
     except Exception as e:
         print(f"[ERROR] Не удалось отправить уведомление: {e}")
 
@@ -161,7 +165,7 @@ async def make_bid(url):
         }
         """
         driver.execute_script(js_click_code)
-        print("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
+        print("[SUCCESS] Ставка отправлена через JS")
         await send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
 
     except Exception as e:
