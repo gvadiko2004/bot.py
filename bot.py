@@ -64,26 +64,21 @@ def load_cookies(driver, url):
     return False
 
 def login_if_needed(driver):
-    driver.get("https://freelancehunt.com/dashboard")
     if os.path.exists(COOKIES_FILE):
-        load_cookies(driver, "https://freelancehunt.com/dashboard")
-        try:
-            wait = WebDriverWait(driver, 10)
-            name_div = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.name")))
-            print(f"[INFO] Авторизация подтверждена через cookies. Имя пользователя: '{name_div.text.strip()}'")
-        except TimeoutException:
-            print("[WARNING] Cookies устарели, будет новая авторизация.")
+        print("[INFO] Cookies найдены, пропускаем авторизацию.")
         return
 
     print("[INFO] Нет сохранённых cookies, авторизация...")
     driver.get(LOGIN_URL)
     wait = WebDriverWait(driver, 30)
-    wait.until(EC.presence_of_element_located((By.ID, "login-0")))
 
+    # Ждем поля логина
+    wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
-    print(f"[INFO] Логин '{LOGIN_DATA['login']}' и пароль введены.")
+    print("[INFO] Логин и пароль введены.")
 
+    # JS-клик по кнопке "Войти"
     js_click_login = """
     const loginBtn = document.querySelector('#save-0');
     if (loginBtn) {
@@ -92,17 +87,8 @@ def login_if_needed(driver):
     }
     """
     driver.execute_script(js_click_login)
-    print("[INFO] Кнопка 'Войти' нажата через JS, ждём авторизацию...")
-    time.sleep(5)
+    time.sleep(5)  # ждем авторизацию
     save_cookies(driver)
-
-    # Проверяем имя после авторизации
-    try:
-        wait = WebDriverWait(driver, 10)
-        name_div = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.name")))
-        print(f"[INFO] Авторизация успешна. Имя пользователя: '{name_div.text.strip()}'")
-    except TimeoutException:
-        print("[ERROR] Не удалось получить имя пользователя после авторизации!")
 
 def make_bid(url):
     chrome_options = Options()
@@ -135,7 +121,7 @@ def make_bid(url):
                 print(f"[ALERT] {alert_div.text.strip()}")
                 return
             except NoSuchElementException:
-                print("[WARNING] Нет кнопки 'Сделать ставку' и уведомления.")
+                print("[WARNING] Нет кнопки 'Сделать ставку' и нет уведомления об ограничении.")
                 return
 
         time.sleep(1)
@@ -154,6 +140,7 @@ def make_bid(url):
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
         print(f"[INFO] Поля формы заполнены. Сумма: {price}")
 
+        # JS-клик по кнопке "Добавить"
         js_click_code = """
         const addButton = document.querySelector('#add-0');
         if (addButton) {
