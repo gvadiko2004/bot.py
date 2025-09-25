@@ -1,5 +1,7 @@
 import os
+import pickle
 import re
+import sys
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -7,10 +9,13 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
+# ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 
@@ -30,20 +35,40 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 """
 
 PROFILE_PATH = "/home/user/chrome_profile"
+COOKIES_FILE = "fh_cookies.pkl"
 
+# ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
-def make_bid(url):
-    options = Options()
-    options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    options.add_argument("--start-maximized")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+def save_cookies(driver):
+    with open(COOKIES_FILE, "wb") as f:
+        pickle.dump(driver.get_cookies(), f)
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+def load_cookies(driver, url):
+    if os.path.exists(COOKIES_FILE):
+        with open(COOKIES_FILE, "rb") as f:
+            cookies = pickle.load(f)
+        driver.get(url)
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except:
+                pass
+        driver.refresh()
+        return True
+    return False
+
+def make_bid(url):
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
+    chrome_options.add_argument("--start-minimized")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-gpu")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
     try:
@@ -51,47 +76,46 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # 1. Нажимаем кнопку "Сделать ставку"
+        # Загружаем куки
+        load_cookies(driver, url)
+
+        # Ждём кнопку "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        bid_btn.click()
+        driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Нажата кнопка 'Сделать ставку'")
+        time.sleep(1)
 
-        # 2. Ждём появления формы
-        wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
-        print("[INFO] Форма ставки активна")
-
-        # 3. Заполняем поля
+        # Ввод суммы
         try:
-            price_span = driver.find_element(By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs")
+            price_span = wait.until(EC.presence_of_element_located((
+                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
+            )))
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except:
             price = "1111"
 
-        driver.find_element(By.ID, "amount-0").send_keys(price)
-        driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
-        driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
+        amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        amount_input.clear()
+        amount_input.send_keys(price)
+
+        days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
+        days_input.clear()
+        days_input.send_keys("3")
+
+        comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+        driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Поля формы заполнены")
 
-        # 4. TAB 6 раз + ENTER
-        actions = webdriver.ActionChains(driver)
-        for i in range(6):
-            actions.send_keys(Keys.TAB)
-            print(f"[INFO] TAB {i+1}")
-            time.sleep(0.2)
-        actions.send_keys(Keys.ENTER)
-        actions.perform()
-        print("[SUCCESS] ENTER для отправки заявки выполнен!")
+        # Ждём, пока кнопка add-0 станет активной
+        submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        time.sleep(1)  # маленькая пауза перед кликом
+        driver.execute_script("arguments[0].click();", submit_btn)
+        print("[SUCCESS] Заявка отправлена кнопкой 'Добавить'")
 
-        print("[INFO] Браузер оставлен открытым для проверки.")
-
-    except Exception as e:
+    except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
-    return driver
-
-def process_project(url):
-    make_bid(url)
-    print("[INFO] Готов к следующему проекту")
+    print("[INFO] Браузер оставлен открытым для проверки.")
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -104,8 +128,10 @@ async def handler(event):
         links = extract_links(text)
         if links:
             print(f"[INFO] Подходит ссылка: {links[0]}")
-            process_project(links[0])
+            make_bid(links[0])
+            print("[INFO] Готов к следующему проекту")
 
+# ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
