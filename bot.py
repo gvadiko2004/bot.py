@@ -18,14 +18,13 @@ from telethon import TelegramClient, events
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
-
-# Твой бот, который будет получать уведомления
 ALERT_BOT_TOKEN = "8338607025:AAH8hiO48IzQG5V8Dbv8cMofJlJ80femgYY"
-ALERT_CHAT_ID = "@freelancehunt_achie_bot"  # Можно использовать username или chat_id
+ALERT_CHAT_ID = "YOUR_CHAT_ID"  # сюда вставь свой Telegram ID для уведомлений
 
+# Клиент для уведомлений
 alert_client = TelegramClient('alert_session', api_id, api_hash)
 
-# ===== Ключевые слова и комментарий =====
+# ===== Ключевые слова и текст заявки =====
 KEYWORDS = [
     "#html_и_css_верстка",
     "#веб_программирование",
@@ -71,14 +70,6 @@ def load_cookies(driver, url):
         return True
     return False
 
-def send_alert(message: str):
-    """Отправка уведомления в Telegram через alert бота"""
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(alert_client.send_message(ALERT_CHAT_ID, message))
-    except Exception as e:
-        print(f"[ERROR] Не удалось отправить уведомление: {e}")
-
 def login_if_needed(driver):
     if os.path.exists(COOKIES_FILE):
         print("[INFO] Cookies найдены, пропускаем авторизацию.")
@@ -88,25 +79,28 @@ def login_if_needed(driver):
     driver.get(LOGIN_URL)
     wait = WebDriverWait(driver, 30)
 
-    # Ждем поля логина
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
     print("[INFO] Логин и пароль введены.")
 
-    # JS-клик по кнопке "Войти"
     js_click_login = """
     const loginBtn = document.querySelector('#save-0');
-    if (loginBtn) {
-        loginBtn.click();
-        console.log('Нажата кнопка Войти через JS');
-    }
+    if (loginBtn) { loginBtn.click(); }
     """
     driver.execute_script(js_click_login)
-    time.sleep(5)  # ждем авторизацию
+    time.sleep(5)
     save_cookies(driver)
 
-def make_bid(url):
+# ---------------- Отправка уведомлений ----------------
+async def send_alert(message: str):
+    try:
+        await alert_client.send_message(ALERT_CHAT_ID, message)
+    except Exception as e:
+        print(f"[ERROR] Не удалось отправить уведомление: {e}")
+
+# ---------------- Функция ставок ----------------
+async def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -125,7 +119,6 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Проверяем кнопку "Сделать ставку"
         wait_short = WebDriverWait(driver, 5)
         try:
             bid_btn = wait_short.until(EC.element_to_be_clickable((By.ID, "add-bid")))
@@ -135,16 +128,15 @@ def make_bid(url):
             try:
                 alert_div = driver.find_element(By.CSS_SELECTOR, "div.alert.alert-info")
                 print(f"[ALERT] {alert_div.text.strip()}")
-                send_alert(f"❌ Не удалось сделать ставку: {alert_div.text.strip()}\nСсылка: {url}")
+                await send_alert(f"❌ Не удалось сделать ставку: {alert_div.text.strip()}\nСсылка: {url}")
                 return
             except NoSuchElementException:
-                print("[WARNING] Нет кнопки 'Сделать ставку' и нет уведомления об ограничении.")
-                send_alert(f"⚠️ Не удалось найти кнопку 'Сделать ставку' для проекта: {url}")
+                print("[WARNING] Нет кнопки 'Сделать ставку'")
+                await send_alert(f"⚠️ Не удалось найти кнопку 'Сделать ставку' для проекта: {url}")
                 return
 
         time.sleep(1)
 
-        # Ввод суммы
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -158,7 +150,6 @@ def make_bid(url):
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
         print(f"[INFO] Поля формы заполнены. Сумма: {price}")
 
-        # JS-клик по кнопке "Добавить"
         js_click_code = """
         const addButton = document.querySelector('#add-0');
         if (addButton) {
@@ -167,16 +158,15 @@ def make_bid(url):
             const y = rect.top + rect.height/2;
             const evt = new MouseEvent('click', {bubbles:true, clientX:x, clientY:y});
             addButton.dispatchEvent(evt);
-            console.log('Кнопка "Добавить" нажата через JS');
         }
         """
         driver.execute_script(js_click_code)
         print("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
-        send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
+        await send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
 
-    except (TimeoutException, NoSuchElementException) as e:
+    except Exception as e:
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
-        send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
+        await send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
 
     print("[INFO] Браузер оставлен открытым для проверки.")
 
@@ -190,12 +180,12 @@ async def handler(event):
 
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
-        make_bid(links[0])
+        await make_bid(links[0])
         print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
-    alert_client.start(bot_token=ALERT_BOT_TOKEN)
+    alert_client.start()
     client.start()
     client.run_until_disconnected()
