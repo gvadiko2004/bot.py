@@ -2,6 +2,7 @@ import os
 import pickle
 import re
 import time
+import tempfile
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -33,7 +34,6 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
-PROFILE_PATH = "/home/user/chrome_profile"
 COOKIES_FILE = "fh_cookies.pkl"
 
 # ---------------- Функции ----------------
@@ -62,10 +62,13 @@ def make_bid(url):
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
     chrome_options.add_argument("--start-minimized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
+    
+    # Уникальный временный профиль для VPS
+    unique_profile = tempfile.mkdtemp()
+    chrome_options.add_argument(f"--user-data-dir={unique_profile}")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
