@@ -1,8 +1,10 @@
 import os
 import pickle
 import re
+import threading
 import time
 import sys
+import shutil
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -11,7 +13,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
@@ -41,6 +42,12 @@ COOKIES_FILE = "fh_cookies.pkl"
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
+def clear_browser_profile():
+    """Полностью удалить временный профиль Chrome"""
+    if os.path.exists(PROFILE_PATH):
+        shutil.rmtree(PROFILE_PATH)
+        print("[INFO] Профиль Chrome очищен")
+
 def save_cookies(driver):
     with open(COOKIES_FILE, "wb") as f:
         pickle.dump(driver.get_cookies(), f)
@@ -54,16 +61,10 @@ def load_cookies(driver, url):
             try:
                 driver.add_cookie(cookie)
             except:
-                continue
+                pass
         driver.refresh()
         return True
     return False
-
-def clear_browser_cache(driver):
-    driver.delete_all_cookies()
-    driver.execute_script("window.localStorage.clear();")
-    driver.execute_script("window.sessionStorage.clear();")
-    print("[INFO] Кэш и куки очищены")
 
 def authorize_manual(driver, wait):
     print("[INFO] Если требуется авторизация, войдите вручную в браузере.")
@@ -78,65 +79,42 @@ def authorize_manual(driver, wait):
     print("[WARN] Авторизация не выполнена, продолжаем")
     return False
 
-def click_submit_all_methods(driver, wait, max_attempts=5):
-    """Попытки нажать кнопку всеми возможными способами"""
-    for attempt in range(max_attempts):
+def click_submit_all_methods(driver, wait):
+    """Пытаемся нажать на кнопку всеми доступными методами"""
+    for attempt in range(3):
         try:
             submit_btn = wait.until(EC.presence_of_element_located((By.ID, "btn-submit-0")))
-            
-            # 1️⃣ JS MouseEvent
-            driver.execute_script("""
-                var evt = new MouseEvent('click', {bubbles:true,cancelable:true,view:window});
-                arguments[0].dispatchEvent(evt);
-            """, submit_btn)
-            time.sleep(0.5)
-
-            # 2️⃣ Selenium click
             try:
                 submit_btn.click()
+                print("[INFO] Кнопка 'Добавить' нажата обычным кликом")
+                return True
             except:
-                pass
-            time.sleep(0.5)
-
-            # 3️⃣ Enter через Selenium
-            try:
-                submit_btn.send_keys(Keys.ENTER)
-            except:
-                pass
-            time.sleep(0.5)
-
-            # 4️⃣ Enter через JS на форму
-            try:
-                driver.execute_script("""
-                    var form = arguments[0].closest('form');
-                    if(form){ form.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})); }
-                """, submit_btn)
-            except:
-                pass
-            time.sleep(0.5)
-
-            # 5️⃣ ActionChains по координатам
-            try:
-                actions = ActionChains(driver)
-                actions.move_to_element(submit_btn).click().perform()
-            except:
-                pass
-
-            print(f"[SUCCESS] Ставка отправлена! (попытка {attempt+1})")
+                # JS клик
+                driver.execute_script("arguments[0].click();", submit_btn)
+                print("[INFO] Кнопка 'Добавить' нажата через JS")
+                return True
+        except:
+            pass
+        try:
+            # Попробуем отправить Enter
+            submit_btn.send_keys(Keys.ENTER)
+            print("[INFO] Кнопка 'Добавить' нажата через Enter")
             return True
-        except Exception as e:
-            print(f"[WARN] Попытка {attempt+1} не удалась: {e}")
+        except:
             time.sleep(1)
-    print("[ERROR] Не удалось отправить ставку после нескольких попыток")
+    print("[ERROR] Не удалось нажать кнопку 'Добавить'")
     return False
 
 def make_bid(url):
+    """Функция делает ставку"""
+    clear_browser_profile()  # чистим профиль перед каждой ставкой
+
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
     chrome_options.add_argument("--start-maximized")
-    chrome_options.add_argument("--window-position=-10000,-10000")  # свернутое окно
+    chrome_options.add_argument("--headless=new")  # headless режим
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -149,46 +127,33 @@ def make_bid(url):
         load_cookies(driver, url)
         authorize_manual(driver, wait)
 
-        # Нажимаем "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
 
-        # Ввод суммы
-        try:
-            price_span = wait.until(EC.presence_of_element_located((
-                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-            )))
-            price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-        except:
-            price = "1111"
-
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
-        amount_input.send_keys(price)
+        amount_input.send_keys("1111")
 
-        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # Вставка комментария
         comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        # Нажатие на кнопку всеми методами
         click_submit_all_methods(driver, wait)
 
-    except (TimeoutException, NoSuchElementException) as e:
+    except Exception as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
     finally:
-        clear_browser_cache(driver)
         driver.quit()
         print("[INFO] Браузер закрыт после завершения ставки.")
 
 def process_project(url):
+    """Запуск ставки и перезапуск скрипта"""
     make_bid(url)
     print("[INFO] Перезапуск скрипта для следующих проектов...")
     python = sys.executable
