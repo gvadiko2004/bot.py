@@ -1,8 +1,6 @@
 import os
-import pickle
 import re
 import time
-import sys
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -13,7 +11,6 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
-# ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 
@@ -33,20 +30,18 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 """
 
 PROFILE_PATH = "/home/user/chrome_profile"
-COOKIES_FILE = "fh_cookies.pkl"
 
-# ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
 
 def make_bid(url):
     options = Options()
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument(f"--user-data-dir={PROFILE_PATH}")
     options.add_argument("--start-maximized")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     wait = WebDriverWait(driver, 30)
@@ -56,52 +51,47 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Ждём появления формы
-        wait.until(EC.presence_of_element_located((By.ID, "amount-0")))
-        wait.until(EC.presence_of_element_located((By.ID, "days_to_deliver-0")))
-        wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
+        # 1. Нажимаем кнопку "Сделать ставку"
+        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+        bid_btn.click()
+        print("[INFO] Нажата кнопка 'Сделать ставку'")
 
-        # Ввод суммы
+        # 2. Ждём появления формы
+        wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
+        print("[INFO] Форма ставки активна")
+
+        # 3. Заполняем поля
         try:
             price_span = driver.find_element(By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs")
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except:
             price = "1111"
 
-        amount_input = driver.find_element(By.ID, "amount-0")
-        amount_input.clear()
-        amount_input.send_keys(price)
+        driver.find_element(By.ID, "amount-0").send_keys(price)
+        driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
+        driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
+        print("[INFO] Поля формы заполнены")
 
-        days_input = driver.find_element(By.ID, "days_to_deliver-0")
-        days_input.clear()
-        days_input.send_keys("3")
-
-        comment_area = driver.find_element(By.ID, "comment-0")
-        driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
-        print("[INFO] Комментарий вставлен")
-
-        # Имитация TAB x6 + ENTER
+        # 4. TAB 6 раз + ENTER
         actions = webdriver.ActionChains(driver)
         for i in range(6):
             actions.send_keys(Keys.TAB)
-            print(f"[INFO] TAB нажата {i+1} раз")
-            time.sleep(0.2)  # небольшая задержка
+            print(f"[INFO] TAB {i+1}")
+            time.sleep(0.2)
         actions.send_keys(Keys.ENTER)
         actions.perform()
-        print("[SUCCESS] Нажат ENTER для отправки ставки!")
+        print("[SUCCESS] ENTER для отправки заявки выполнен!")
 
         print("[INFO] Браузер оставлен открытым для проверки.")
 
     except Exception as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
-    # НЕ закрываем браузер
     return driver
 
 def process_project(url):
     make_bid(url)
     print("[INFO] Готов к следующему проекту")
-    # Скрипт можно оставить запущенным без перезапуска
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -116,7 +106,6 @@ async def handler(event):
             print(f"[INFO] Подходит ссылка: {links[0]}")
             process_project(links[0])
 
-# ---------------- Запуск ----------------
 if __name__ == "__main__":
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
