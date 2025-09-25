@@ -65,11 +65,14 @@ def load_cookies(driver, url):
 
 def login_if_needed(driver):
     if os.path.exists(COOKIES_FILE):
-        return True  # cookies есть
+        print("[INFO] Cookies найдены, пропускаем авторизацию.")
+        return
+
     print("[INFO] Нет сохранённых cookies, авторизация...")
     driver.get(LOGIN_URL)
     wait = WebDriverWait(driver, 30)
 
+    # Ждем поля логина
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
@@ -84,7 +87,7 @@ def login_if_needed(driver):
     }
     """
     driver.execute_script(js_click_login)
-    time.sleep(5)
+    time.sleep(5)  # ждем авторизацию
     save_cookies(driver)
 
 def make_bid(url):
@@ -106,13 +109,13 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Проверяем наличие кнопки "Сделать ставку"
+        # Проверяем кнопку "Сделать ставку"
+        wait_short = WebDriverWait(driver, 5)
         try:
-            bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")), timeout=5)
+            bid_btn = wait_short.until(EC.element_to_be_clickable((By.ID, "add-bid")))
             driver.execute_script("arguments[0].click();", bid_btn)
             print("[INFO] Нажата кнопка 'Сделать ставку'")
         except TimeoutException:
-            # Проверяем сообщение о лимите ставок
             try:
                 alert_div = driver.find_element(By.CSS_SELECTOR, "div.alert.alert-info")
                 print(f"[ALERT] {alert_div.text.strip()}")
@@ -123,7 +126,7 @@ def make_bid(url):
 
         time.sleep(1)
 
-        # Динамическая сумма ставки
+        # Ввод суммы
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -135,7 +138,7 @@ def make_bid(url):
         driver.find_element(By.ID, "amount-0").send_keys(price)
         driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
-        print("[INFO] Поля формы заполнены")
+        print(f"[INFO] Поля формы заполнены. Сумма: {price}")
 
         # JS-клик по кнопке "Добавить"
         js_click_code = """
@@ -152,7 +155,7 @@ def make_bid(url):
         driver.execute_script(js_click_code)
         print("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
 
-    except Exception as e:
+    except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
 
     print("[INFO] Браузер оставлен открытым для проверки.")
