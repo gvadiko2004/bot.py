@@ -1,8 +1,8 @@
 import os
 import pickle
 import re
-import sys
 import time
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -10,6 +10,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
 # ===== Настройки Telegram =====
@@ -35,7 +37,7 @@ PROFILE_PATH = "/home/user/chrome_profile"
 COOKIES_FILE = "fh_cookies.pkl"
 
 # ---------------- Функции ----------------
-def extract_links(text):
+def extract_links(text: str):
     return re.findall(r"https?://[^\s]+", text)
 
 def save_cookies(driver):
@@ -50,7 +52,7 @@ def load_cookies(driver, url):
         for cookie in cookies:
             try:
                 driver.add_cookie(cookie)
-            except:
+            except Exception:
                 pass
         driver.refresh()
         return True
@@ -65,7 +67,7 @@ def make_bid(url):
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
 
-    driver = webdriver.Chrome(service=Service(webdriver.ChromeDriverManager().install()), options=chrome_options)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
     try:
@@ -89,7 +91,7 @@ def make_bid(url):
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
             )))
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-        except:
+        except Exception:
             price = "1111"
 
         driver.find_element(By.ID, "amount-0").send_keys(price)
@@ -97,7 +99,7 @@ def make_bid(url):
         driver.execute_script("document.getElementById('comment-0').value = arguments[0];", COMMENT_TEXT)
         print("[INFO] Поля формы заполнены")
 
-        # JS-клик по кнопке "Добавить", имитация действий пользователя
+        # JS-клик по кнопке "Добавить"
         js_click_code = """
         const addButton = document.querySelector('#add-0');
         if (addButton) {
@@ -125,7 +127,7 @@ async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
 
-    # Если ссылки в тексте нет, проверяем inline-кнопки
+    # Проверяем inline-кнопки, если нет ссылок в тексте
     if not links and event.message.reply_markup:
         for row in event.message.reply_markup.rows:
             for button in row.buttons:
