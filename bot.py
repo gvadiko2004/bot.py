@@ -1,16 +1,17 @@
 import os
 import pickle
 import re
-import sys
+import threading
 import time
+import sys
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.keys import Keys
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
@@ -39,6 +40,12 @@ COOKIES_FILE = "fh_cookies.pkl"
 # ---------------- Функции ----------------
 def extract_links(text):
     return re.findall(r"https?://[^\s]+", text)
+
+def clear_browser_cache(driver):
+    try:
+        driver.delete_all_cookies()
+    except:
+        pass
 
 def save_cookies(driver):
     with open(COOKIES_FILE, "wb") as f:
@@ -71,58 +78,56 @@ def authorize_manual(driver, wait):
     print("[WARN] Авторизация не выполнена, продолжаем")
     return False
 
-def clear_browser_cache(driver):
-    """Удаляем все куки и локальное хранилище"""
-    driver.delete_all_cookies()
-    driver.execute_script("window.localStorage.clear();")
-    driver.execute_script("window.sessionStorage.clear();")
-    print("[INFO] Кэш и куки очищены")
-
 def click_submit_all_methods(driver, wait):
-    """Пробуем несколько вариантов нажатия кнопки 'Добавить'"""
+    """Пробуем все методы клика по кнопке 'Добавить'"""
     try:
         submit_btn = wait.until(EC.presence_of_element_located((By.ID, "btn-submit-0")))
+        
+        # 1. Обычный click
+        try:
+            submit_btn.click()
+            print("[INFO] Попытка click выполнена")
+            return
+        except:
+            pass
+        
+        # 2. JS click
+        try:
+            driver.execute_script("arguments[0].click();", submit_btn)
+            print("[INFO] Попытка JS click выполнена")
+            return
+        except:
+            pass
+        
+        # 3. Send Enter
+        try:
+            submit_btn.send_keys(Keys.ENTER)
+            print("[INFO] Попытка Enter выполнена")
+            return
+        except:
+            pass
+        
+        # 4. Двойной JS click
+        try:
+            driver.execute_script("arguments[0].click(); arguments[0].click();", submit_btn)
+            print("[INFO] Попытка двойного JS click выполнена")
+            return
+        except:
+            pass
+        
+        print("[ERROR] Не удалось нажать кнопку 'Добавить'")
     except TimeoutException:
-        print("[ERROR] Кнопка 'Добавить' не найдена!")
-        return False
-
-    # 1. JS клик
-    try:
-        driver.execute_script("arguments[0].click();", submit_btn)
-        print("[INFO] JS клик выполнен")
-        return True
-    except:
-        pass
-
-    # 2. Обычный click()
-    try:
-        submit_btn.click()
-        print("[INFO] Click() выполнен")
-        return True
-    except:
-        pass
-
-    # 3. Отправка Enter
-    try:
-        submit_btn.send_keys(Keys.ENTER)
-        print("[INFO] Нажатие Enter выполнено")
-        return True
-    except:
-        pass
-
-    print("[WARN] Все методы клика не сработали")
-    return False
+        print("[ERROR] Кнопка 'Добавить' не найдена")
 
 def make_bid(url):
-    """Делаем ставку"""
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    # Свёрнутое окно за пределами экрана
-    chrome_options.add_argument("--window-position=-32000,0")
-    chrome_options.add_argument("--start-maximized")
-
+    chrome_options.add_argument("--start-minimized")  # свернутый браузер
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-gpu")
+    
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
@@ -131,6 +136,7 @@ def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
+        clear_browser_cache(driver)
         load_cookies(driver, url)
         authorize_manual(driver, wait)
 
@@ -159,26 +165,19 @@ def make_bid(url):
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        # Клик по кнопке всеми методами
-        success = click_submit_all_methods(driver, wait)
-        if success:
-            print("[SUCCESS] Ставка отправлена!")
-        else:
-            print("[ERROR] Ставка не отправлена!")
+        click_submit_all_methods(driver, wait)
+        print("[SUCCESS] Ставка отправлена!")
 
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
     finally:
-        # Очистка кеша перед закрытием
-        clear_browser_cache(driver)
         driver.quit()
         print("[INFO] Браузер закрыт после завершения ставки.")
 
 def process_project(url):
-    """Запуск ставки и перезапуск скрипта для стабильности"""
     make_bid(url)
-    print("[INFO] Перезапуск скрипта для обработки следующих проектов...")
+    print("[INFO] Перезапуск скрипта для следующего проекта...")
     python = sys.executable
     os.execl(python, python, *sys.argv)
 
