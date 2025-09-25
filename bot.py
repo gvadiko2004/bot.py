@@ -10,6 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
@@ -58,7 +60,6 @@ def load_cookies(driver, url):
     return False
 
 def clear_browser_cache(driver):
-    """Очистка кук и локального хранилища"""
     driver.delete_all_cookies()
     driver.execute_script("window.localStorage.clear();")
     driver.execute_script("window.sessionStorage.clear();")
@@ -77,17 +78,49 @@ def authorize_manual(driver, wait):
     print("[WARN] Авторизация не выполнена, продолжаем")
     return False
 
-def click_submit(driver, wait, max_attempts=5):
-    """Надёжное нажатие на кнопку 'Добавить'"""
+def click_submit_all_methods(driver, wait, max_attempts=5):
+    """Попытки нажать кнопку всеми возможными способами"""
     for attempt in range(max_attempts):
         try:
             submit_btn = wait.until(EC.presence_of_element_located((By.ID, "btn-submit-0")))
-            wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
-
+            
+            # 1️⃣ JS MouseEvent
             driver.execute_script("""
                 var evt = new MouseEvent('click', {bubbles:true,cancelable:true,view:window});
                 arguments[0].dispatchEvent(evt);
             """, submit_btn)
+            time.sleep(0.5)
+
+            # 2️⃣ Selenium click
+            try:
+                submit_btn.click()
+            except:
+                pass
+            time.sleep(0.5)
+
+            # 3️⃣ Enter через Selenium
+            try:
+                submit_btn.send_keys(Keys.ENTER)
+            except:
+                pass
+            time.sleep(0.5)
+
+            # 4️⃣ Enter через JS на форму
+            try:
+                driver.execute_script("""
+                    var form = arguments[0].closest('form');
+                    if(form){ form.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})); }
+                """, submit_btn)
+            except:
+                pass
+            time.sleep(0.5)
+
+            # 5️⃣ ActionChains по координатам
+            try:
+                actions = ActionChains(driver)
+                actions.move_to_element(submit_btn).click().perform()
+            except:
+                pass
 
             print(f"[SUCCESS] Ставка отправлена! (попытка {attempt+1})")
             return True
@@ -98,7 +131,6 @@ def click_submit(driver, wait, max_attempts=5):
     return False
 
 def make_bid(url):
-    """Основная функция обработки проекта"""
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -117,6 +149,7 @@ def make_bid(url):
         load_cookies(driver, url)
         authorize_manual(driver, wait)
 
+        # Нажимаем "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
@@ -134,15 +167,18 @@ def make_bid(url):
         amount_input.clear()
         amount_input.send_keys(price)
 
+        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
+        # Вставка комментария
         comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        click_submit(driver, wait)
+        # Нажатие на кнопку всеми методами
+        click_submit_all_methods(driver, wait)
 
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
@@ -153,7 +189,6 @@ def make_bid(url):
         print("[INFO] Браузер закрыт после завершения ставки.")
 
 def process_project(url):
-    """Обработка проекта и перезапуск скрипта"""
     make_bid(url)
     print("[INFO] Перезапуск скрипта для следующих проектов...")
     python = sys.executable
