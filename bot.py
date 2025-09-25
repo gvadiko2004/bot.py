@@ -13,15 +13,12 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
-from telethon import TelegramClient, events, sync
-from telethon.tl.types import InputPeerUser
-from telethon.errors.rpcerrorlist import PeerIdInvalidError
+from telethon import TelegramClient, events
 
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
-ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
-ALERT_CHAT_ID = 1168962519    # вставь сюда свой Telegram ID
+ALERT_CHAT_ID = 1168962519  # твой Telegram ID для уведомлений
 
 # Клиент для уведомлений
 alert_client = TelegramClient('alert_session', api_id, api_hash)
@@ -97,9 +94,8 @@ def login_if_needed(driver):
 # ---------------- Отправка уведомлений ----------------
 async def send_alert(message: str):
     try:
-        await alert_client.send_message(ALERT_CHAT_ID, message)
-    except PeerIdInvalidError:
-        print("[ERROR] Неверный ALERT_CHAT_ID, укажи свой Telegram ID.")
+        entity = await alert_client.get_input_entity(ALERT_CHAT_ID)
+        await alert_client.send_message(entity, message)
     except Exception as e:
         print(f"[ERROR] Не удалось отправить уведомление: {e}")
 
@@ -188,8 +184,11 @@ async def handler(event):
         print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
-if __name__ == "__main__":
+async def main():
+    await alert_client.start()
     print("[INFO] Бот запущен. Ожидаем новые проекты...")
-    alert_client.start()
     client.start()
-    client.run_until_disconnected()
+    await client.run_until_disconnected()
+
+if __name__ == "__main__":
+    asyncio.run(main())
