@@ -14,14 +14,17 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
+from telegram import Bot  # pip install python-telegram-bot
 
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
+
+ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"  # токен @iliarchie_bot
 ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 
-# Клиент для уведомлений
-alert_client = TelegramClient('alert_session', api_id, api_hash)
+# создаём объект бота один раз
+alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
 # ===== Ключевые слова и текст заявки =====
 KEYWORDS = [
@@ -69,10 +72,10 @@ def login_if_needed(driver):
     time.sleep(5)
     save_cookies(driver)
 
-async def send_alert(message: str):
+def send_alert(message: str):
+    """Отправка уведомления через бота @iliarchie_bot"""
     try:
-        entity = await alert_client.get_input_entity(ALERT_CHAT_ID)
-        await alert_client.send_message(entity, message)
+        alert_bot.send_message(chat_id=ALERT_CHAT_ID, text=message)
     except Exception as e:
         print(f"[ERROR] Не удалось отправить уведомление: {e}")
 
@@ -103,11 +106,11 @@ async def make_bid(url):
             try:
                 alert_div = driver.find_element(By.CSS_SELECTOR, "div.alert.alert-info")
                 print(f"[ALERT] {alert_div.text.strip()}")
-                await send_alert(f"❌ Не удалось сделать ставку: {alert_div.text.strip()}\nСсылка: {url}")
+                send_alert(f"❌ Не удалось сделать ставку: {alert_div.text.strip()}\nСсылка: {url}")
                 return
             except NoSuchElementException:
                 print("[WARNING] Нет кнопки 'Сделать ставку'")
-                await send_alert(f"⚠️ Не удалось найти кнопку 'Сделать ставку' для проекта: {url}")
+                send_alert(f"⚠️ Не удалось найти кнопку 'Сделать ставку' для проекта: {url}")
                 return
 
         time.sleep(1)
@@ -132,10 +135,10 @@ async def make_bid(url):
         """
         driver.execute_script(js_click_code)
         print("[SUCCESS] Ставка отправлена через JS")
-        await send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
+        send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
     except Exception as e:
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
-        await send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
+        send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
     print("[INFO] Браузер оставлен открытым для проверки.")
 
 # ---------------- Телеграм ----------------
@@ -152,8 +155,7 @@ async def handler(event):
 
 # ---------------- Запуск ----------------
 async def main():
-    await alert_client.start()
-    print("[INFO] Бот уведомлений запущен.")
+    print("[INFO] Бот уведомлений запущен через @iliarchie_bot.")
     await client.start()
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
     await client.run_until_disconnected()
