@@ -11,7 +11,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
 
@@ -63,7 +62,7 @@ def authorize_manual(driver, wait):
     print("[INFO] Если требуется авторизация, войдите вручную в браузере.")
     for _ in range(60):
         try:
-            if driver.find_element(By.ID, "add-bid").is_displayed():
+            if driver.find_element(By.ID, "add-0").is_displayed():
                 print("[INFO] Авторизация завершена")
                 save_cookies(driver)
                 return True
@@ -77,26 +76,29 @@ def make_bid(url):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--start-minimized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
-    
+
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
-    driver.get(url)
-    wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
-    print(f"[INFO] Страница проекта загружена: {url}")
-
-    load_cookies(driver, url)
-    authorize_manual(driver, wait)
-
     try:
-        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        driver.execute_script("arguments[0].click();", bid_btn)
-        print("[INFO] Кнопка 'Сделать ставку' нажата")
+        driver.get(url)
+        wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
+        print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Ввод суммы
+        load_cookies(driver, url)
+        authorize_manual(driver, wait)
+
+        # === Первый клик по кнопке "Добавить" ===
+        first_add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        first_add_btn.click()
+        print("[INFO] Первый клик 'Добавить' выполнен")
+
+        time.sleep(1)  # дать JS прогрузиться
+
+        # === Заполняем поля ===
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -108,37 +110,36 @@ def make_bid(url):
         amount_input = wait.until(EC.element_to_be_clickable((By.ID, "amount-0")))
         amount_input.clear()
         amount_input.send_keys(price)
+        print(f"[INFO] Введена сумма: {price}")
 
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
+        print("[INFO] Введены дни: 3")
 
         comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        # Имитируем TAB x6 + ENTER с логами
-        actions = ActionChains(driver)
-        for i in range(6):
-            actions.send_keys(Keys.TAB)
-            print(f"[INFO] Нажатие TAB {i+1}")
-            time.sleep(0.2)  # имитация человеческой задержки
-        actions.send_keys(Keys.ENTER)
-        actions.perform()
-        print("[INFO] Нажатие ENTER выполнено")
+        time.sleep(1)  # дать JS обработать изменения
 
-        print("[SUCCESS] Ставка отправлена (если сайт принял ENTER)")
+        # === Второй клик по кнопке "Добавить" для отправки ===
+        second_add_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-0")))
+        driver.execute_script("arguments[0].click();", second_add_btn)
+        print("[SUCCESS] Второй клик выполнен. Заявка отправлена!")
+
+        # === Логирование успешного завершения ===
+        print("[INFO] Все шаги успешно завершены. Браузер оставлен открытым для проверки.")
 
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
 
-    # Не закрываем браузер
+    # НЕ закрываем браузер
     return driver
 
 def process_project(url):
-    driver = make_bid(url)
-    print("[INFO] Браузер оставлен открытым для проверки.")
-    # Можно оставить driver для последующих действий
+    make_bid(url)
+    print("[INFO] Готов к следующему проекту")
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
