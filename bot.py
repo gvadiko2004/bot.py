@@ -32,7 +32,7 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 Заздалегідь дякую!
 """
 
-PROFILE_PATH = "/home/user/chrome_profile"  # Путь к постоянному профилю Chrome
+PROFILE_PATH = "/home/user/chrome_profile"
 COOKIES_FILE = "fh_cookies.pkl"
 
 # ---------------- Функции ----------------
@@ -88,10 +88,7 @@ def make_bid(url):
         load_cookies(driver, url)
         authorize_manual(driver, wait)
 
-        # Ожидание кнопки "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-
-        # Первый клик — открываем форму
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Первый клик 'Сделать ставку' выполнен")
 
@@ -122,10 +119,18 @@ def make_bid(url):
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[SUCCESS] Ставка отправлена!")
 
+        # Браузер остаётся открытым
+        print("[INFO] Браузер остаётся открытым для проверки. Закройте его вручную, когда нужно.")
+
+        # Можно добавить бесконечный цикл, чтобы держать окно открытым
+        while True:
+            time.sleep(10)
+
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
-    finally:
-        driver.quit()
+        print("[INFO] Браузер остаётся открытым для отладки.")
+        while True:
+            time.sleep(10)
 
 def process_project(url):
     threading.Thread(target=make_bid, args=(url,), daemon=True).start()
