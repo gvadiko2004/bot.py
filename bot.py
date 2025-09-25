@@ -3,6 +3,8 @@ import pickle
 import re
 import threading
 import time
+import sys
+import subprocess
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -71,6 +73,7 @@ def authorize_manual(driver, wait):
     return False
 
 def make_bid(url):
+    """Функция делает ставку и закрывает браузер после завершения"""
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -88,7 +91,6 @@ def make_bid(url):
         load_cookies(driver, url)
         authorize_manual(driver, wait)
 
-        # Ожидание кнопки "Сделать ставку"
         bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
         driver.execute_script("arguments[0].click();", bid_btn)
         print("[INFO] Кнопка 'Сделать ставку' нажата")
@@ -106,34 +108,32 @@ def make_bid(url):
         amount_input.clear()
         amount_input.send_keys(price)
 
-        # Ввод дней
         days_input = wait.until(EC.element_to_be_clickable((By.ID, "days_to_deliver-0")))
         days_input.clear()
         days_input.send_keys("3")
 
-        # Вставка комментария через JS
         comment_area = wait.until(EC.presence_of_element_located((By.ID, "comment-0")))
         driver.execute_script("arguments[0].value = arguments[1];", comment_area, COMMENT_TEXT)
         print("[INFO] Комментарий вставлен")
 
-        # Обязательный клик на кнопку "Добавить" для отправки ставки
         submit_btn = wait.until(EC.element_to_be_clickable((By.ID, "btn-submit-0")))
         driver.execute_script("arguments[0].click();", submit_btn)
         print("[SUCCESS] Ставка отправлена!")
 
-        # Браузер остаётся открытым
-        print("[INFO] Браузер остаётся открытым для проверки.")
-        while True:
-            time.sleep(10)
-
     except (TimeoutException, NoSuchElementException) as e:
         print(f"[ERROR] Не удалось сделать ставку: {e}")
-        print("[INFO] Браузер остаётся открытым для отладки.")
-        while True:
-            time.sleep(10)
+
+    finally:
+        driver.quit()
+        print("[INFO] Браузер закрыт после завершения ставки.")
 
 def process_project(url):
-    threading.Thread(target=make_bid, args=(url,), daemon=True).start()
+    """Запуск ставки и перезапуск скрипта после завершения"""
+    make_bid(url)
+    print("[INFO] Перезапуск скрипта для обработки следующих проектов...")
+    # Перезапуск текущего скрипта через subprocess
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
 
 # ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
@@ -150,6 +150,6 @@ async def handler(event):
 
 # ---------------- Запуск ----------------
 if __name__ == "__main__":
-    print("[INFO] Бот запущен. Ожидаем проекты...")
+    print("[INFO] Бот запущен. Ожидаем новые проекты...")
     client.start()
     client.run_until_disconnected()
