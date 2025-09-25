@@ -35,14 +35,18 @@ COMMENT_TEXT = """Доброго дня! Готовий виконати роб�
 
 PROFILE_PATH = "/home/user/chrome_profile"
 COOKIES_FILE = "fh_cookies.pkl"
+LOGIN_URL = "https://freelancehunt.com/profile/login"
+LOGIN_DATA = {"login": "Vlari", "password": "Gvadiko_2004"}
 
 # ---------------- Функции ----------------
 def extract_links(text: str):
-    return re.findall(r"https?://[^\s]+", text)
+    return [link for link in re.findall(r"https?://[^\s]+", text)
+            if link.startswith("https://freelancehunt.com/")]
 
 def save_cookies(driver):
     with open(COOKIES_FILE, "wb") as f:
         pickle.dump(driver.get_cookies(), f)
+    print("[INFO] Cookies сохранены.")
 
 def load_cookies(driver, url):
     if os.path.exists(COOKIES_FILE):
@@ -55,8 +59,33 @@ def load_cookies(driver, url):
             except Exception:
                 pass
         driver.refresh()
+        print("[INFO] Cookies загружены.")
         return True
     return False
+
+def login_if_needed(driver):
+    if os.path.exists(COOKIES_FILE):
+        return True  # cookies есть
+    print("[INFO] Нет сохранённых cookies, авторизация...")
+    driver.get(LOGIN_URL)
+    wait = WebDriverWait(driver, 30)
+
+    wait.until(EC.presence_of_element_located((By.ID, "login-0")))
+    driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
+    driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
+    print("[INFO] Логин и пароль введены.")
+
+    # JS-клик по кнопке "Войти"
+    js_click_login = """
+    const loginBtn = document.querySelector('#save-0');
+    if (loginBtn) {
+        loginBtn.click();
+        console.log('Нажата кнопка Войти через JS');
+    }
+    """
+    driver.execute_script(js_click_login)
+    time.sleep(5)
+    save_cookies(driver)
 
 def make_bid(url):
     chrome_options = Options()
@@ -71,21 +100,30 @@ def make_bid(url):
     wait = WebDriverWait(driver, 30)
 
     try:
+        login_if_needed(driver)
+
         driver.get(url)
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        # Загружаем куки
-        load_cookies(driver, url)
+        # Проверяем наличие кнопки "Сделать ставку"
+        try:
+            bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")), timeout=5)
+            driver.execute_script("arguments[0].click();", bid_btn)
+            print("[INFO] Нажата кнопка 'Сделать ставку'")
+        except TimeoutException:
+            # Проверяем сообщение о лимите ставок
+            try:
+                alert_div = driver.find_element(By.CSS_SELECTOR, "div.alert.alert-info")
+                print(f"[ALERT] {alert_div.text.strip()}")
+                return
+            except NoSuchElementException:
+                print("[WARNING] Нет кнопки 'Сделать ставку' и нет уведомления об ограничении.")
+                return
+
         time.sleep(1)
 
-        # Нажимаем "Сделать ставку"
-        bid_btn = wait.until(EC.element_to_be_clickable((By.ID, "add-bid")))
-        driver.execute_script("arguments[0].click();", bid_btn)
-        print("[INFO] Нажата кнопка 'Сделать ставку'")
-        time.sleep(1)
-
-        # Ввод суммы
+        # Динамическая сумма ставки
         try:
             price_span = wait.until(EC.presence_of_element_located((
                 By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
@@ -114,8 +152,8 @@ def make_bid(url):
         driver.execute_script(js_click_code)
         print("[SUCCESS] Заявка отправлена кнопкой 'Добавить' через JS")
 
-    except (TimeoutException, NoSuchElementException) as e:
-        print(f"[ERROR] Не удалось сделать ставку: {e}")
+    except Exception as e:
+        print(f"[ERROR] Ошибка при отправке заявки: {e}")
 
     print("[INFO] Браузер оставлен открытым для проверки.")
 
@@ -126,13 +164,6 @@ client = TelegramClient("session", api_id, api_hash)
 async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
-
-    # Проверяем inline-кнопки, если нет ссылок в тексте
-    if not links and event.message.reply_markup:
-        for row in event.message.reply_markup.rows:
-            for button in row.buttons:
-                if hasattr(button, 'url') and button.url:
-                    links.append(button.url)
 
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
