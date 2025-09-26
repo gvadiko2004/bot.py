@@ -24,17 +24,7 @@ ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 from telegram import Bot
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
-# ===== Ключевые слова и текст заявки =====
-KEYWORDS = [
-    "#html_и_css_верстка",
-    "#веб_программирование",
-    "#cms",
-    "#интернет_магазины_и_электронная_коммерция",
-    "#создание_сайта_под_ключ",
-    "#дизайн_сайтов"
-]
-KEYWORDS = [kw.lower() for kw in KEYWORDS]
-
+# ===== Текст заявки =====
 COMMENT_TEXT = """Доброго дня! Готовий виконати роботу якісно.
 Портфоліо робіт у моєму профілі.
 Заздалегідь дякую!
@@ -149,8 +139,10 @@ client = TelegramClient("session", api_id, api_hash)
 async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
-    if any(k in text for k in KEYWORDS) and links:
-        print(f"[INFO] Подходит ссылка: {links[0]}")
+
+    # Умова: є хештег і є посилання з freelancehunt
+    if "#" in text and links:
+        print(f"[INFO] Найдена ссылка: {links[0]}")
         await make_bid(links[0])
         print("[INFO] Готов к следующему проекту")
 
