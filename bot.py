@@ -20,7 +20,7 @@ from telegram import Bot
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
-ALERT_CHAT_ID = 1168962519  # твой Telegram ID
+ALERT_CHAT_ID = 1168962519
 
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
@@ -47,6 +47,7 @@ LOGIN_DATA = {"login": "Vlari", "password": "Gvadiko_2004"}
 
 # ---------------- Функции ----------------
 def extract_links(text: str):
+    """Извлекаем все ссылки Freelancehunt из текста."""
     return [link for link in re.findall(r"https?://[^\s]+", text)
             if link.startswith("https://freelancehunt.com/")]
 
@@ -56,8 +57,13 @@ def save_cookies(driver):
     print("[INFO] Cookies сохранены.")
 
 def login_if_needed(driver):
+    """Авторизация с сохранением cookies."""
     if os.path.exists(COOKIES_FILE):
         print("[INFO] Cookies найдены, пропускаем авторизацию.")
+        driver.get("https://freelancehunt.com")
+        for cookie in pickle.load(open(COOKIES_FILE, "rb")):
+            driver.add_cookie(cookie)
+        driver.refresh()
         return
 
     driver.get(LOGIN_URL)
@@ -65,12 +71,12 @@ def login_if_needed(driver):
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
-    js_click_login = "const btn=document.querySelector('#save-0');if(btn){btn.click();}"
+    js_click_login = "const btn=document.querySelector('#save-0'); if(btn){btn.click();}"
     driver.execute_script(js_click_login)
     time.sleep(5)
     save_cookies(driver)
 
-# ---------------- Отправка уведомлений ----------------
+# ---------------- Уведомления ----------------
 async def send_alert(message: str):
     try:
         await alert_bot.send_message(chat_id=ALERT_CHAT_ID, text=message)
@@ -83,7 +89,7 @@ async def make_bid(url):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument("--start-minimized")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
 
@@ -140,9 +146,11 @@ async def make_bid(url):
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
         await send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
 
-    print("[INFO] Браузер оставлен открытым для проверки.")
+    finally:
+        driver.quit()
+        print("[INFO] Браузер закрыт.")
 
-# ---------------- Телеграм ----------------
+# ---------------- Telegram ----------------
 client = TelegramClient("session", api_id, api_hash)
 
 @client.on(events.NewMessage)
@@ -150,24 +158,15 @@ async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
     if any(k in text for k in KEYWORDS) and links:
-        print(f"[INFO] Найдены ссылки: {links}")
         for url in links:
-            try:
-                print(f"[INFO] Обрабатываем ссылку: {url}")
-                await make_bid(url)
-                print(f"[INFO] Готов к следующему проекту после: {url}")
-            except Exception as e:
-                print(f"[ERROR] Ошибка при обработке ссылки {url}: {e}")
-                await send_alert(f"❌ Ошибка при обработке ссылки {url}: {e}")
+            print(f"[INFO] Подходит ссылка: {url}")
+            await make_bid(url)
+            print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 async def main():
     print("[INFO] Запуск бота уведомлений через @iliarchie_bot...")
-    await alert_bot.initialize()  # инициализация Bot API
-    print("[INFO] Бот уведомлений запущен.")
-
-    # Запуск клиента Telethon с авторизацией через код
-    await client.start()  # если не авторизован, попросит номер и код
+    await client.start(phone=lambda: input("Введите номер: "), password=lambda: input("Пароль, если есть: "))
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
     await client.run_until_disconnected()
 
