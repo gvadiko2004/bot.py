@@ -14,6 +14,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
+from telegram import Bot
 
 # ===== Настройки Telegram =====
 api_id = 21882740
@@ -21,7 +22,6 @@ api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
 ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 
-from telegram import Bot
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
 # ===== Ключевые слова и текст заявки =====
@@ -47,8 +47,8 @@ LOGIN_DATA = {"login": "Vlari", "password": "Gvadiko_2004"}
 
 # ---------------- Функции ----------------
 def extract_links(text: str):
-    return [link for link in re.findall(r"https?://[^\s]+", text)
-            if link.startswith("https://freelancehunt.com/")]
+    # Ищем ссылки с /project/ или /projects/
+    return re.findall(r"https?://freelancehunt\.com/project[s]?/[^\s]+", text)
 
 def save_cookies(driver):
     with open(COOKIES_FILE, "wb") as f:
@@ -147,17 +147,18 @@ client = TelegramClient("session", api_id, api_hash)
 
 @client.on(events.NewMessage)
 async def handler(event):
-    text = (event.message.text or "").lower()
+    text = (event.message.text or "").lower().strip()
     links = extract_links(text)
-    if any(k in text for k in KEYWORDS) and links:
-        print(f"[INFO] Подходит ссылка: {links[0]}")
-        await make_bid(links[0])
-        print("[INFO] Готов к следующему проекту")
+    if any(kw in text for kw in KEYWORDS) and links:
+        for link in links:
+            print(f"[INFO] Подходит ссылка: {link}")
+            await make_bid(link)
+            print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 async def main():
     print("[INFO] Запуск бота уведомлений через @iliarchie_bot...")
-    await alert_bot.initialize()  # инициализация Bot API
+    await alert_bot.initialize()
     print("[INFO] Бот уведомлений запущен.")
     await client.start()
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
