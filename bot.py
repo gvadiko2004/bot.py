@@ -12,8 +12,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
+from telegram import Bot
 
 # ===== Настройки Telegram =====
 api_id = 21882740
@@ -21,7 +21,6 @@ api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
 ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 
-from telegram import Bot
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
 # ===== Ключевые слова и текст заявки =====
@@ -87,7 +86,8 @@ async def make_bid(url):
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    # Используем системный chromedriver
+    driver = webdriver.Chrome(service=Service("/usr/bin/chromedriver"), options=chrome_options)
     wait = WebDriverWait(driver, 30)
 
     try:
