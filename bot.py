@@ -14,14 +14,14 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
+from telegram import Bot
 
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
-ALERT_CHAT_ID = 1168962519  # твой Telegram ID
+ALERT_CHAT_ID = 1168962519
 
-from telegram import Bot
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
 # ===== Ключевые слова и текст заявки =====
@@ -58,6 +58,9 @@ def save_cookies(driver):
 def login_if_needed(driver):
     if os.path.exists(COOKIES_FILE):
         print("[INFO] Cookies найдены, пропускаем авторизацию.")
+        driver.get("https://freelancehunt.com/")
+        for cookie in pickle.load(open(COOKIES_FILE, "rb")):
+            driver.add_cookie(cookie)
         return
 
     driver.get(LOGIN_URL)
@@ -65,8 +68,7 @@ def login_if_needed(driver):
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
-    js_click_login = "const btn=document.querySelector('#save-0');if(btn){btn.click();}"
-    driver.execute_script(js_click_login)
+    driver.execute_script("document.querySelector('#save-0').click();")
     time.sleep(5)
     save_cookies(driver)
 
@@ -83,9 +85,9 @@ async def make_bid(url):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument("--start-minimized")
-    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--headless")  # можно убрать для визуализации
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     wait = WebDriverWait(driver, 30)
@@ -96,69 +98,46 @@ async def make_bid(url):
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
         print(f"[INFO] Страница проекта загружена: {url}")
 
-        wait_short = WebDriverWait(driver, 5)
         try:
-            bid_btn = wait_short.until(EC.element_to_be_clickable((By.ID, "add-bid")))
+            bid_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.ID, "add-bid"))
+            )
             driver.execute_script("arguments[0].click();", bid_btn)
             print("[INFO] Нажата кнопка 'Сделать ставку'")
         except TimeoutException:
-            try:
-                alert_div = driver.find_element(By.CSS_SELECTOR, "div.alert.alert-info")
-                print(f"[ALERT] {alert_div.text.strip()}")
-                await send_alert(f"❌ Не удалось сделать ставку: {alert_div.text.strip()}\nСсылка: {url}")
-                return
-            except NoSuchElementException:
-                print("[WARNING] Нет кнопки 'Сделать ставку'")
-                await send_alert(f"⚠️ Не удалось найти кнопку 'Сделать ставку' для проекта: {url}")
-                return
+            await send_alert(f"⚠️ Нет кнопки 'Сделать ставку' для проекта: {url}")
+            return
 
-        time.sleep(1)
+        # Заполнение формы
         try:
-            price_span = wait.until(EC.presence_of_element_located((
-                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-            )))
-            price = re.sub(r"[^\d]", "", price_span.text) or "1111"
-        except Exception:
-            price = "1111"
-
-        driver.find_element(By.ID, "amount-0").send_keys(price)
-        driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
-        driver.execute_script(f"document.getElementById('comment-0').value = `{COMMENT_TEXT}`;")
-        js_click_code = """
-        const addButton = document.querySelector('#add-0');
-        if (addButton) {
-            const rect = addButton.getBoundingClientRect();
-            const evt = new MouseEvent('click',{bubbles:true, clientX:rect.left+rect.width/2, clientY:rect.top+rect.height/2});
-            addButton.dispatchEvent(evt);
-        }
-        """
-        driver.execute_script(js_click_code)
-        print("[SUCCESS] Ставка отправлена через JS")
-        await send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
+            price = "1111"  # можно динамически брать из проекта
+            driver.find_element(By.ID, "amount-0").send_keys(price)
+            driver.find_element(By.ID, "days_to_deliver-0").send_keys("3")
+            driver.execute_script(f"document.getElementById('comment-0').value=`{COMMENT_TEXT}`;")
+            driver.execute_script("document.querySelector('#add-0').click();")
+            print("[SUCCESS] Ставка отправлена")
+            await send_alert(f"✅ Ставка успешно отправлена!\nСсылка: {url}\nСумма: {price}")
+        except Exception as e:
+            await send_alert(f"❌ Ошибка при заполнении формы: {e}\nСсылка: {url}")
 
     except Exception as e:
-        print(f"[ERROR] Ошибка при отправке заявки: {e}")
-        await send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
+        await send_alert(f"❌ Ошибка при открытии проекта: {e}\nСсылка: {url}")
+    finally:
+        driver.quit()
 
-    print("[INFO] Браузер оставлен открытым для проверки.")
-
-# ---------------- Телеграм ----------------
+# ---------------- Telegram Client ----------------
 client = TelegramClient("session", api_id, api_hash)
 
 @client.on(events.NewMessage)
 async def handler(event):
-    text = (event.message.text or "").lower()
+    text = (event.message.message or "").lower()
     links = extract_links(text)
     if any(k in text for k in KEYWORDS) and links:
-        print(f"[INFO] Подходит ссылка: {links[0]}")
+        print(f"[INFO] Найден проект: {links[0]}")
         await make_bid(links[0])
-        print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 async def main():
-    print("[INFO] Запуск бота уведомлений через @iliarchie_bot...")
-    await alert_bot.initialize()  # инициализация Bot API
-    print("[INFO] Бот уведомлений запущен.")
     await client.start()
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
     await client.run_until_disconnected()
