@@ -114,9 +114,7 @@ async def make_bid(url):
 
         time.sleep(1)
         try:
-            price_span = wait.until(EC.presence_of_element_located((
-                By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs"
-            )))
+            price_span = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span.text-green.bold.pull-right.price.with-tooltip.hidden-xs")))
             price = re.sub(r"[^\d]", "", price_span.text) or "1111"
         except Exception:
             price = "1111"
@@ -147,8 +145,21 @@ client = TelegramClient("session", api_id, api_hash)
 
 @client.on(events.NewMessage)
 async def handler(event):
+    # Получаем текст сообщения
     text = (event.message.text or "").lower()
+
+    # Ищем ссылки в тексте
     links = extract_links(text)
+
+    # ДОПОЛНИТЕЛЬНО: ищем ссылки в кнопках (inline keyboard)
+    if event.message.reply_markup:
+        for row in event.message.reply_markup.rows:
+            for button in row.buttons:
+                if hasattr(button, 'url') and button.url:
+                    if button.url.startswith("https://freelancehunt.com/"):
+                        links.append(button.url)
+
+    # Проверка на ключевые слова и наличие хотя бы одной ссылки
     if any(k in text for k in KEYWORDS) and links:
         print(f"[INFO] Подходит ссылка: {links[0]}")
         await make_bid(links[0])
@@ -157,7 +168,7 @@ async def handler(event):
 # ---------------- Запуск ----------------
 async def main():
     print("[INFO] Запуск бота уведомлений через @iliarchie_bot...")
-    await alert_bot.initialize()  # инициализация Bot API
+    await alert_bot.initialize()
     print("[INFO] Бот уведомлений запущен.")
     await client.start()
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
