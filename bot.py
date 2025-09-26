@@ -14,14 +14,14 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
-from telegram import Bot
 
 # ===== Настройки Telegram =====
 api_id = 21882740
 api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
-ALERT_CHAT_ID = 1168962519
+ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 
+from telegram import Bot
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
 # ===== Ключевые слова и текст заявки =====
@@ -47,7 +47,6 @@ LOGIN_DATA = {"login": "Vlari", "password": "Gvadiko_2004"}
 
 # ---------------- Функции ----------------
 def extract_links(text: str):
-    """Извлекаем все ссылки Freelancehunt из текста."""
     return [link for link in re.findall(r"https?://[^\s]+", text)
             if link.startswith("https://freelancehunt.com/")]
 
@@ -57,13 +56,8 @@ def save_cookies(driver):
     print("[INFO] Cookies сохранены.")
 
 def login_if_needed(driver):
-    """Авторизация с сохранением cookies."""
     if os.path.exists(COOKIES_FILE):
         print("[INFO] Cookies найдены, пропускаем авторизацию.")
-        driver.get("https://freelancehunt.com")
-        for cookie in pickle.load(open(COOKIES_FILE, "rb")):
-            driver.add_cookie(cookie)
-        driver.refresh()
         return
 
     driver.get(LOGIN_URL)
@@ -71,12 +65,12 @@ def login_if_needed(driver):
     wait.until(EC.presence_of_element_located((By.ID, "login-0")))
     driver.execute_script(f'document.getElementById("login-0").value="{LOGIN_DATA["login"]}";')
     driver.execute_script(f'document.getElementById("password-0").value="{LOGIN_DATA["password"]}";')
-    js_click_login = "const btn=document.querySelector('#save-0'); if(btn){btn.click();}"
+    js_click_login = "const btn=document.querySelector('#save-0');if(btn){btn.click();}"
     driver.execute_script(js_click_login)
     time.sleep(5)
     save_cookies(driver)
 
-# ---------------- Уведомления ----------------
+# ---------------- Отправка уведомлений ----------------
 async def send_alert(message: str):
     try:
         await alert_bot.send_message(chat_id=ALERT_CHAT_ID, text=message)
@@ -89,7 +83,7 @@ async def make_bid(url):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument(f"--user-data-dir={PROFILE_PATH}")
-    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--start-minimized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-gpu")
 
@@ -146,11 +140,9 @@ async def make_bid(url):
         print(f"[ERROR] Ошибка при отправке заявки: {e}")
         await send_alert(f"❌ Ошибка при отправке ставки: {e}\nСсылка: {url}")
 
-    finally:
-        driver.quit()
-        print("[INFO] Браузер закрыт.")
+    print("[INFO] Браузер оставлен открытым для проверки.")
 
-# ---------------- Telegram ----------------
+# ---------------- Телеграм ----------------
 client = TelegramClient("session", api_id, api_hash)
 
 @client.on(events.NewMessage)
@@ -158,15 +150,16 @@ async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
     if any(k in text for k in KEYWORDS) and links:
-        for url in links:
-            print(f"[INFO] Подходит ссылка: {url}")
-            await make_bid(url)
-            print("[INFO] Готов к следующему проекту")
+        print(f"[INFO] Подходит ссылка: {links[0]}")
+        await make_bid(links[0])
+        print("[INFO] Готов к следующему проекту")
 
 # ---------------- Запуск ----------------
 async def main():
     print("[INFO] Запуск бота уведомлений через @iliarchie_bot...")
-    await client.start(phone=lambda: input("Введите номер: "), password=lambda: input("Пароль, если есть: "))
+    await alert_bot.initialize()  # инициализация Bot API
+    print("[INFO] Бот уведомлений запущен.")
+    await client.start()
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
     await client.run_until_disconnected()
 
