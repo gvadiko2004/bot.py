@@ -14,6 +14,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from webdriver_manager.chrome import ChromeDriverManager
 from telethon import TelegramClient, events
+from telegram import Bot
 
 # ===== Настройки Telegram =====
 api_id = 21882740
@@ -21,7 +22,6 @@ api_hash = "c80a68894509d01a93f5acfeabfdd922"
 ALERT_BOT_TOKEN = "6566504110:AAFK9hA4jxZ0eA7KZGhVvPe8mL2HZj2tQmE"
 ALERT_CHAT_ID = 1168962519  # твой Telegram ID
 
-from telegram import Bot
 alert_bot = Bot(token=ALERT_BOT_TOKEN)
 
 # ===== Ключевые слова и текст заявки =====
@@ -150,16 +150,24 @@ async def handler(event):
     text = (event.message.text or "").lower()
     links = extract_links(text)
     if any(k in text for k in KEYWORDS) and links:
-        print(f"[INFO] Подходит ссылка: {links[0]}")
-        await make_bid(links[0])
-        print("[INFO] Готов к следующему проекту")
+        print(f"[INFO] Найдены ссылки: {links}")
+        for url in links:
+            try:
+                print(f"[INFO] Обрабатываем ссылку: {url}")
+                await make_bid(url)
+                print(f"[INFO] Готов к следующему проекту после: {url}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка при обработке ссылки {url}: {e}")
+                await send_alert(f"❌ Ошибка при обработке ссылки {url}: {e}")
 
 # ---------------- Запуск ----------------
 async def main():
     print("[INFO] Запуск бота уведомлений через @iliarchie_bot...")
     await alert_bot.initialize()  # инициализация Bot API
     print("[INFO] Бот уведомлений запущен.")
-    await client.start()
+
+    # Запуск клиента Telethon с авторизацией через код
+    await client.start()  # если не авторизован, попросит номер и код
     print("[INFO] Telegram бот запущен. Ожидаем новые проекты...")
     await client.run_until_disconnected()
 
